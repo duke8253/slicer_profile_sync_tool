@@ -1,0 +1,3 @@
+# Cross-platform colored terminal output
+# Enables ANSI color codes on Windows
+colorama>=0.4.6
