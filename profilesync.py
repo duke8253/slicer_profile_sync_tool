@@ -1431,8 +1431,10 @@ def _do_pull_import(cfg: Config) -> int:
                 "Tip: Use 'profilesync sync --action push' to save your local changes first."))
             return 0
 
-        # User confirmed - discard local changes
+        # User confirmed - discard local changes (both tracked and untracked)
         run(["git", "reset", "--hard", "HEAD"], cwd=cfg.repo_dir)
+        # Also remove untracked files (new files from export)
+        run(["git", "clean", "-fd"], cwd=cfg.repo_dir)
 
     try:
         git_pull_rebase(cfg.repo_dir)
