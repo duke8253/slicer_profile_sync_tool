@@ -622,7 +622,8 @@ def initialize_empty_repo(repo_dir: Path, remote: str) -> None:
     if result.returncode != 0:
         run(["git", "branch", "-M", "master"], cwd=repo_dir)
 
-    print(success(f"{get_check_symbol()} Sync folder ready") + dim(" (not yet pushed to GitHub)"))
+    print(success(f"{get_check_symbol()} Sync folder ready") +
+          dim(" (not yet pushed to GitHub)"))
 
 
 def git_status_porcelain(repo_dir: Path) -> str:
@@ -1069,7 +1070,8 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
                 print(f"Check: {repo_dir}")
                 return False
 
-        print(success(f"{get_check_symbol()} Conflicts resolved successfully!"))
+        print(
+            success(f"{get_check_symbol()} Conflicts resolved successfully!"))
         return True
     else:
         # User declined to resolve conflicts - abort the rebase/merge
@@ -1319,8 +1321,36 @@ def _do_push(cfg: Config) -> int:
                     needs_push = True
 
     if not committed and not needs_push:
-        print(success(f"{get_check_symbol()} Everything is already synced to GitHub."))
+        print(
+            success(f"{get_check_symbol()} Everything is already synced to GitHub."))
         return 0
+
+    # Check if we need to sync with remote first (local and remote have diverged)
+    if git_has_commits(cfg.repo_dir):
+        result = run(["git", "rev-parse", "origin/main"],
+                     cwd=cfg.repo_dir, check=False)
+        if result.returncode == 0:
+            remote_head = result.stdout.strip()
+            local_head = run(["git", "rev-parse", "HEAD"],
+                             cwd=cfg.repo_dir).stdout.strip()
+
+            # Check if remote has commits we don't have
+            result = run(["git", "merge-base", "--is-ancestor", local_head, remote_head],
+                         cwd=cfg.repo_dir, check=False)
+
+            if result.returncode != 0:
+                # Local and remote have diverged - conflicts may occur
+                print(
+                    warning("\n⚠ Warning: GitHub has different profiles than your local files."))
+                print(
+                    "Pushing will attempt to merge your changes with GitHub's version.")
+                print("This may require resolving conflicts.\n")
+
+                if not confirm("Continue with push (may need to resolve conflicts)?", default=True):
+                    print("\nPush cancelled.")
+                    print(info(
+                        "Tip: Use 'profilesync sync --action pull' to download GitHub's version first."))
+                    return 0
 
     # Now try to pull with rebase to detect conflicts
     try:
@@ -1386,6 +1416,24 @@ def _do_pull_import(cfg: Config) -> int:
         except subprocess.CalledProcessError:
             pass
 
+    # For pull operations, discard any local uncommitted changes
+    # We want to use the remote files, not merge with local exports
+    status = git_status_porcelain(cfg.repo_dir)
+    if status.strip():
+        # There are uncommitted changes (from export) - warn user
+        print(warning(
+            "\n⚠ Warning: Your local slicer files differ from the last saved version."))
+        print("Pulling will overwrite your current slicer files with the version from GitHub.\n")
+
+        if not confirm("Continue and overwrite local files with GitHub version?", default=False):
+            print("\nPull cancelled. Your local files are unchanged.")
+            print(info(
+                "Tip: Use 'profilesync sync --action push' to save your local changes first."))
+            return 0
+
+        # User confirmed - discard local changes
+        run(["git", "reset", "--hard", "HEAD"], cwd=cfg.repo_dir)
+
     try:
         git_pull_rebase(cfg.repo_dir)
     except subprocess.CalledProcessError as e:
@@ -1406,19 +1454,21 @@ def _do_pull_import(cfg: Config) -> int:
         for src, dst in imported:
             # Determine which slicer this file belongs to
             for slicer_key in cfg.enabled_slicers:
-                slicer_dirs = [Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+                slicer_dirs = [
+                    Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
                 for slicer_dir in slicer_dirs:
                     if dst.is_relative_to(slicer_dir):
                         if slicer_key not in by_slicer:
                             by_slicer[slicer_key] = []
                         by_slicer[slicer_key].append((src, dst))
                         break
-        
+
         print(success(
             f"{get_check_symbol()} Downloaded {len(imported)} file(s) from GitHub to your slicer folders:"))
-        
+
         for slicer_key, files in by_slicer.items():
-            display_name = SLICER_DISPLAY_NAMES.get(slicer_key, slicer_key.capitalize())
+            display_name = SLICER_DISPLAY_NAMES.get(
+                slicer_key, slicer_key.capitalize())
             print(f"\n  {highlight(display_name)} ({len(files)} files):")
             for src, dst in files[:3]:
                 print(f"    • {dst.name}")
@@ -1494,19 +1544,21 @@ def _do_pick_version_import(cfg: Config) -> int:
         for src, dst in imported:
             # Determine which slicer this file belongs to
             for slicer_key in cfg.enabled_slicers:
-                slicer_dirs = [Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+                slicer_dirs = [
+                    Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
                 for slicer_dir in slicer_dirs:
                     if dst.is_relative_to(slicer_dir):
                         if slicer_key not in by_slicer:
                             by_slicer[slicer_key] = []
                         by_slicer[slicer_key].append((src, dst))
                         break
-        
+
         print(
             success(f"{get_check_symbol()} Restored {len(imported)} file(s) from {selected['time']}:"))
-        
+
         for slicer_key, files in by_slicer.items():
-            display_name = SLICER_DISPLAY_NAMES.get(slicer_key, slicer_key.capitalize())
+            display_name = SLICER_DISPLAY_NAMES.get(
+                slicer_key, slicer_key.capitalize())
             print(f"\n  {highlight(display_name)} ({len(files)} files):")
             for src, dst in files[:3]:
                 print(f"    • {dst.name}")
