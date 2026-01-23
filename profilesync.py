@@ -814,6 +814,100 @@ def _guard_not_dev_repo(repo_dir: Path) -> None:
 
 # ---- UI / flows ----------------------------------------------------------------
 
+def _group_by_slicer_and_type(files: list[tuple[Path, Path]], cfg: Config, repo_dir: Path, use_dst_for_type: bool = True) -> dict[str, dict[str, list[tuple[Path, Path]]]]:
+    """
+    Group files by slicer and then by profile type (filament/process/printer).
+
+    Args:
+        files: List of (src, dst) tuples
+        cfg: Config object
+        repo_dir: Repository directory path
+        use_dst_for_type: If True, extract type from dst path (for export/push).
+                         If False, extract from src path (for import/pull).
+
+    Returns: {slicer_key: {profile_type: [(src, dst), ...]}}
+    """
+    by_slicer: dict[str, dict[str, list[tuple[Path, Path]]]] = {}
+
+    for src, dst in files:
+        # Determine which slicer this file belongs to
+        slicer_key = None
+        path_for_type = None
+        base_path = None
+
+        if use_dst_for_type:
+            # For export: dst is in repo, check against repo structure
+            for sk in cfg.enabled_slicers:
+                slicer_root = repo_dir / REPO_PROFILES_DIR / sk
+                if dst.is_relative_to(slicer_root):
+                    slicer_key = sk
+                    path_for_type = dst
+                    base_path = slicer_root
+                    break
+        else:
+            # For import: src is in repo, dst is in slicer dir, check dst against slicer dirs
+            for sk in cfg.enabled_slicers:
+                slicer_dirs = [Path(p)
+                               for p in cfg.slicer_profile_dirs.get(sk, [])]
+                for slicer_dir in slicer_dirs:
+                    if dst.is_relative_to(slicer_dir):
+                        slicer_key = sk
+                        # Use src (from repo) to determine type
+                        path_for_type = src
+                        base_path = repo_dir / REPO_PROFILES_DIR / sk
+                        break
+                if slicer_key:
+                    break
+
+        if not slicer_key or not path_for_type or not base_path:
+            continue
+
+        # Get the profile type from the path (e.g., filament, process, printer)
+        # Structure is: profiles/slicer/type/file.json or slicer_dir/type/file.json
+        try:
+            rel = path_for_type.relative_to(base_path)
+            # First part of path is the type (filament, process, printer, etc.)
+            profile_type = rel.parts[0] if rel.parts else "other"
+            # Capitalize first letter
+            profile_type = profile_type.capitalize()
+        except (ValueError, IndexError):
+            profile_type = "Other"
+
+        # Initialize nested dict structure
+        if slicer_key not in by_slicer:
+            by_slicer[slicer_key] = {}
+        if profile_type not in by_slicer[slicer_key]:
+            by_slicer[slicer_key][profile_type] = []
+
+        by_slicer[slicer_key][profile_type].append((src, dst))
+
+    return by_slicer
+
+
+def _display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]], message: str) -> None:
+    """
+    Display files grouped by slicer and profile type.
+    """
+    total = sum(len(files) for types in grouped.values()
+                for files in types.values())
+    print(message.format(count=total))
+
+    for slicer_key, types in grouped.items():
+        display_name = SLICER_DISPLAY_NAMES.get(
+            slicer_key, slicer_key.capitalize())
+        total_for_slicer = sum(len(files) for files in types.values())
+
+        print(f"\n  {highlight(display_name)} ({total_for_slicer} files):")
+
+        for profile_type, files in sorted(types.items()):
+            print(f"    {info(profile_type)} ({len(files)}):")
+            # Show first 2 files for each type
+            for src, dst in files[:2]:
+                print(f"      • {dst.name}")
+            if len(files) > 2:
+                print(f"      ... and {len(files) - 2} more")
+
+
 def interactive_select_slicers(slicers: list[Slicer]) -> list[str]:
     print("Select slicers to sync (comma-separated numbers):")
     for i, s in enumerate(slicers, start=1):
@@ -1244,28 +1338,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     # 3) Show what changed locally
     if exported:
-        by_slicer: dict[str, list[tuple[Path, Path]]] = {}
-        # Group files by slicer
-        for src, dst in exported:
-            # Determine which slicer this file belongs to
-            for slicer_key in cfg.enabled_slicers:
-                slicer_root = cfg.repo_dir / REPO_PROFILES_DIR / slicer_key
-                if dst.is_relative_to(slicer_root):
-                    if slicer_key not in by_slicer:
-                        by_slicer[slicer_key] = []
-                    by_slicer[slicer_key].append((src, dst))
-                    break
-
-        print(
-            f"\nFound {len(exported)} changed file(s) in your slicer folders:")
-        for slicer_key, files in by_slicer.items():
-            display_name = SLICER_DISPLAY_NAMES.get(
-                slicer_key, slicer_key.capitalize())
-            print(f"\n  {display_name} ({len(files)} files):")
-            for src, dst in files[:3]:
-                print(f"    • {src.name}")
-            if len(files) > 3:
-                print(f"    ... and {len(files) - 3} more")
+        grouped = _group_by_slicer_and_type(exported, cfg, cfg.repo_dir)
+        _display_grouped_files(
+            grouped, "\nFound {count} changed file(s) in your slicer folders:")
     else:
         print(success(f"\n{get_check_symbol()} No local changes detected"))
 
@@ -1451,31 +1526,10 @@ def _do_pull_import(cfg: Config) -> int:
 
     imported = import_from_repo_to_slicers(cfg)
     if imported:
-        # Group imports by slicer for better display
-        by_slicer: dict[str, list[tuple[Path, Path]]] = {}
-        for src, dst in imported:
-            # Determine which slicer this file belongs to
-            for slicer_key in cfg.enabled_slicers:
-                slicer_dirs = [
-                    Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
-                for slicer_dir in slicer_dirs:
-                    if dst.is_relative_to(slicer_dir):
-                        if slicer_key not in by_slicer:
-                            by_slicer[slicer_key] = []
-                        by_slicer[slicer_key].append((src, dst))
-                        break
-
-        print(success(
-            f"{get_check_symbol()} Downloaded {len(imported)} file(s) from GitHub to your slicer folders:"))
-
-        for slicer_key, files in by_slicer.items():
-            display_name = SLICER_DISPLAY_NAMES.get(
-                slicer_key, slicer_key.capitalize())
-            print(f"\n  {highlight(display_name)} ({len(files)} files):")
-            for src, dst in files[:3]:
-                print(f"    • {dst.name}")
-            if len(files) > 3:
-                print(f"    ... and {len(files) - 3} more")
+        grouped = _group_by_slicer_and_type(
+            imported, cfg, cfg.repo_dir, use_dst_for_type=False)
+        _display_grouped_files(grouped, success(
+            f"{get_check_symbol()} Downloaded {{count}} file(s) from GitHub to your slicer folders:"))
     else:
         print(success(f"{get_check_symbol()} All files are up to date."))
     return 0
@@ -1541,31 +1595,10 @@ def _do_pick_version_import(cfg: Config) -> int:
     git_checkout_commit(cfg.repo_dir, commit_hash)
     imported = import_from_repo_to_slicers(cfg)
     if imported:
-        # Group imports by slicer for better display
-        by_slicer: dict[str, list[tuple[Path, Path]]] = {}
-        for src, dst in imported:
-            # Determine which slicer this file belongs to
-            for slicer_key in cfg.enabled_slicers:
-                slicer_dirs = [
-                    Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
-                for slicer_dir in slicer_dirs:
-                    if dst.is_relative_to(slicer_dir):
-                        if slicer_key not in by_slicer:
-                            by_slicer[slicer_key] = []
-                        by_slicer[slicer_key].append((src, dst))
-                        break
-
-        print(
-            success(f"{get_check_symbol()} Restored {len(imported)} file(s) from {selected['time']}:"))
-
-        for slicer_key, files in by_slicer.items():
-            display_name = SLICER_DISPLAY_NAMES.get(
-                slicer_key, slicer_key.capitalize())
-            print(f"\n  {highlight(display_name)} ({len(files)} files):")
-            for src, dst in files[:3]:
-                print(f"    • {dst.name}")
-            if len(files) > 3:
-                print(f"    ... and {len(files) - 3} more")
+        grouped = _group_by_slicer_and_type(
+            imported, cfg, cfg.repo_dir, use_dst_for_type=False)
+        _display_grouped_files(grouped, success(
+            f"{get_check_symbol()} Restored {{count}} file(s) from {selected['time']}:"))
     else:
         print(
             success(f"{get_check_symbol()} Version from {selected['time']} matches current files."))
