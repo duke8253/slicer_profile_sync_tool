@@ -109,6 +109,17 @@ def dim(text: str) -> str:
     return color(text, Colors.BLUE)
 
 
+def get_check_symbol() -> str:
+    """Get appropriate check/success symbol for the platform"""
+    # Use ASCII-compatible symbols for Windows compatibility
+    # Unicode checkmarks don't display properly in Windows terminal
+    system = platform.system()
+    if system == "Windows":
+        return "[OK]"  # ASCII-safe for Windows
+    else:
+        return "✓"  # Unicode checkmark for Unix/macOS
+
+
 # ---- Slicer definitions (macOS) ------------------------------------------------
 
 @dataclass(frozen=True)
@@ -611,7 +622,7 @@ def initialize_empty_repo(repo_dir: Path, remote: str) -> None:
     if result.returncode != 0:
         run(["git", "branch", "-M", "master"], cwd=repo_dir)
 
-    print(success("✓ Sync folder ready") + dim(" (not yet pushed to GitHub)"))
+    print(success(f"{get_check_symbol()} Sync folder ready") + dim(" (not yet pushed to GitHub)"))
 
 
 def git_status_porcelain(repo_dir: Path) -> str:
@@ -830,7 +841,7 @@ def interactive_configure_paths(enabled: list[str], slicers: list[Slicer]) -> di
         default_dir = s.default_profile_dirs[0] if s.default_profile_dirs else None
 
         if default_dir:
-            exists_marker = "✓" if default_dir.exists() else "✗"
+            exists_marker = get_check_symbol() if default_dir.exists() else "X"
             print(f"\n{s.display}: [{exists_marker}] {default_dir}")
             print("  Press Enter to use this directory, or enter a custom path:")
         else:
@@ -1058,7 +1069,7 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
                 print(f"Check: {repo_dir}")
                 return False
 
-        print(success("✓ Conflicts resolved successfully!"))
+        print(success(f"{get_check_symbol()} Conflicts resolved successfully!"))
         return True
     else:
         # User declined to resolve conflicts - abort the rebase/merge
@@ -1069,7 +1080,7 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
             result = run(["git", "rebase", "--abort"],
                          cwd=repo_dir, check=False)
             if result.returncode == 0:
-                print(success("✓ Sync cancelled.") +
+                print(success(f"{get_check_symbol()} Sync cancelled.") +
                       " Your local files are unchanged.")
             else:
                 print(warning("⚠ Warning:") +
@@ -1081,7 +1092,7 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
             result = run(["git", "merge", "--abort"],
                          cwd=repo_dir, check=False)
             if result.returncode == 0:
-                print(success("✓ Sync cancelled.") +
+                print(success(f"{get_check_symbol()} Sync cancelled.") +
                       " Your local files are unchanged.")
             else:
                 print(warning("⚠ Warning:") +
@@ -1114,7 +1125,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(error(f"\nError: {error_msg}"))
         return 2
 
-    print(success("✓ Remote repository is accessible\n"))
+    print(success(f"{get_check_symbol()} Remote repository is accessible\n"))
 
     suggested_repo_dir = _suggest_repo_dir_from_remote(remote)
 
@@ -1254,7 +1265,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             if len(files) > 3:
                 print(f"    ... and {len(files) - 3} more")
     else:
-        print(success("\n✓ No local changes detected"))
+        print(success(f"\n{get_check_symbol()} No local changes detected"))
 
     # 4) Ask what the user wants to do
     if args.action:
@@ -1308,7 +1319,7 @@ def _do_push(cfg: Config) -> int:
                     needs_push = True
 
     if not committed and not needs_push:
-        print(success("✓ Everything is already synced to GitHub."))
+        print(success(f"{get_check_symbol()} Everything is already synced to GitHub."))
         return 0
 
     # Now try to pull with rebase to detect conflicts
@@ -1355,7 +1366,7 @@ def _do_push(cfg: Config) -> int:
             # Normal push
             git_push(cfg.repo_dir)
 
-        print(success("✓ Saved to GitHub."))
+        print(success(f"{get_check_symbol()} Saved to GitHub."))
         return 0
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.strip() or str(e)
@@ -1390,14 +1401,31 @@ def _do_pull_import(cfg: Config) -> int:
 
     imported = import_from_repo_to_slicers(cfg)
     if imported:
+        # Group imports by slicer for better display
+        by_slicer: dict[str, list[tuple[Path, Path]]] = {}
+        for src, dst in imported:
+            # Determine which slicer this file belongs to
+            for slicer_key in cfg.enabled_slicers:
+                slicer_dirs = [Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+                for slicer_dir in slicer_dirs:
+                    if dst.is_relative_to(slicer_dir):
+                        if slicer_key not in by_slicer:
+                            by_slicer[slicer_key] = []
+                        by_slicer[slicer_key].append((src, dst))
+                        break
+        
         print(success(
-            f"✓ Downloaded {len(imported)} file(s) from GitHub to your slicer folders:"))
-        for src, dst in imported[:5]:
-            print(f"  • {dst.name}")
-        if len(imported) > 5:
-            print(f"  ... and {len(imported) - 5} more")
+            f"{get_check_symbol()} Downloaded {len(imported)} file(s) from GitHub to your slicer folders:"))
+        
+        for slicer_key, files in by_slicer.items():
+            display_name = SLICER_DISPLAY_NAMES.get(slicer_key, slicer_key.capitalize())
+            print(f"\n  {highlight(display_name)} ({len(files)} files):")
+            for src, dst in files[:3]:
+                print(f"    • {dst.name}")
+            if len(files) > 3:
+                print(f"    ... and {len(files) - 3} more")
     else:
-        print(success("✓ All files are up to date."))
+        print(success(f"{get_check_symbol()} All files are up to date."))
     return 0
 
 
@@ -1461,15 +1489,32 @@ def _do_pick_version_import(cfg: Config) -> int:
     git_checkout_commit(cfg.repo_dir, commit_hash)
     imported = import_from_repo_to_slicers(cfg)
     if imported:
+        # Group imports by slicer for better display
+        by_slicer: dict[str, list[tuple[Path, Path]]] = {}
+        for src, dst in imported:
+            # Determine which slicer this file belongs to
+            for slicer_key in cfg.enabled_slicers:
+                slicer_dirs = [Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+                for slicer_dir in slicer_dirs:
+                    if dst.is_relative_to(slicer_dir):
+                        if slicer_key not in by_slicer:
+                            by_slicer[slicer_key] = []
+                        by_slicer[slicer_key].append((src, dst))
+                        break
+        
         print(
-            success(f"✓ Restored {len(imported)} file(s) from {selected['time']}:"))
-        for src, dst in imported[:5]:
-            print(f"  • {dst.name}")
-        if len(imported) > 5:
-            print(f"  ... and {len(imported) - 5} more")
+            success(f"{get_check_symbol()} Restored {len(imported)} file(s) from {selected['time']}:"))
+        
+        for slicer_key, files in by_slicer.items():
+            display_name = SLICER_DISPLAY_NAMES.get(slicer_key, slicer_key.capitalize())
+            print(f"\n  {highlight(display_name)} ({len(files)} files):")
+            for src, dst in files[:3]:
+                print(f"    • {dst.name}")
+            if len(files) > 3:
+                print(f"    ... and {len(files) - 3} more")
     else:
         print(
-            success(f"✓ Version from {selected['time']} matches current files."))
+            success(f"{get_check_symbol()} Version from {selected['time']} matches current files."))
 
     if confirm("Return to latest version?", default=True):
         try:
