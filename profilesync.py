@@ -89,7 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nRun 'profilesync init' first to set up configuration.")
         return 1
     except KeyboardInterrupt:
-        print("\nAborted by user.")
+        from profilesync.ui import info
+        print(info("\nAborted. No changes were made to remote or local files."))
         return 130
     except Exception as e:
         print(f"Error: {e}")
