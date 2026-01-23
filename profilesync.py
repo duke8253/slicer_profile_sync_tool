@@ -31,6 +31,13 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+try:
+    import colorama  # Cross-platform colored terminal output
+    colorama.init(autoreset=True)  # Auto-reset colors after each print
+except ImportError:
+    # colorama not installed - colors may not work on Windows
+    pass
+
 
 APP_NAME = "profilesync"
 # Store config in the same directory as the script

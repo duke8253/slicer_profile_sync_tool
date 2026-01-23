@@ -54,6 +54,9 @@ All slicers support automatic detection of numeric user ID subdirectories.
 git clone <your-dev-repo>
 cd slicer_profile_sync_tool
 
+# Install dependencies (for colored output on all platforms)
+pip3 install -r requirements.txt
+
 # Make the script executable
 chmod +x profilesync.py
 ```
@@ -64,6 +67,9 @@ chmod +x profilesync.py
 # Clone this repository
 git clone <your-dev-repo>
 cd slicer_profile_sync_tool
+
+# Install dependencies (enables colored output on Windows)
+pip install -r requirements.txt
 
 # Run directly with Python (no chmod needed on Windows)
 python profilesync.py
