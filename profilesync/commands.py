@@ -109,7 +109,7 @@ def interactive_configure_paths(enabled: list[str], slicers: list[Slicer]) -> di
 def show_local_remote_summary(cfg: Config) -> None:
     """Show sync status summary."""
     print(f"\n{highlight('Sync status:')}")
-    print(f"  {dim('Local folder:')}  {cfg.repo_dir}")
+    print(f"  {dim('Local folder:')} {cfg.repo_dir}")
     print(f"  {dim('Remote server:')} {cfg.github_remote}")
 
     # Fetch latest from remote to ensure we have up-to-date info
@@ -132,13 +132,13 @@ def show_local_remote_summary(cfg: Config) -> None:
             try:
                 dt = datetime.fromisoformat(out.replace('Z', '+00:00'))
                 time_str = dt.strftime("%B %d, %Y at %I:%M %p")
-                print(f"  {dim('Last sync:')}     {info(time_str)}")
+                print(f"  {dim('Last sync:')} {info(time_str)}")
             except Exception:
-                print(f"  {dim('Last sync:')}     {out}")
+                print(f"  {dim('Last sync:')} {out}")
         else:
-            print(f"  {dim('Last sync:')}     Unknown")
+            print(f"  {dim('Last sync:')} Unknown")
     else:
-        print(f"  {dim('Last sync:')}     Never (no profiles on server yet)")
+        print(f"  {dim('Last sync:')} Never (no profiles on server yet)")
 
     # Show a quick file inventory grouped by type from sync directory
     for slicer in cfg.enabled_slicers:
