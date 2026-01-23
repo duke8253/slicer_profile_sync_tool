@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-profilesync (macOS v1)
+profilesync (v2 - Cross-platform)
 
 Interactive sync for slicer filament/profile JSON files using a GitHub private repo.
-- Supports: Bambu Studio, OrcaSlicer (paths auto-detected)
+- Supports: Bambu Studio, OrcaSlicer, and more (paths auto-detected)
+- Platforms: macOS, Windows, Linux
 - Uses git CLI (must be installed) and SSH auth recommended.
-
-Future: add Windows paths + packaging.
 """
 
 from __future__ import annotations
@@ -17,7 +16,10 @@ import hashlib
 import json
 import os
 import platform
-import readline  # Enable arrow keys and history in input()
+try:
+    import readline  # Enable arrow keys and history in input() (Unix/macOS only)
+except ImportError:
+    pass  # readline not available on Windows, but not required
 import shlex
 import shutil
 import subprocess
@@ -195,6 +197,93 @@ def _macos_default_slicers() -> list[Slicer]:
                 elegoo_base / "user" / "default"],
         ),
     ]
+
+
+def _windows_default_slicers() -> list[Slicer]:
+    """
+    Windows slicer profile locations (auto-detect numeric user_id subdirs).
+    """
+    # Windows uses %APPDATA% which is typically C:\Users\USERNAME\AppData\Roaming
+    appdata = Path(os.getenv("APPDATA", ""))
+    if not appdata or not appdata.exists():
+        # Fallback to constructing the path manually
+        appdata = Path.home() / "AppData" / "Roaming"
+
+    # OrcaSlicer and variants
+    orca_base = appdata / "OrcaSlicer"
+    snapmaker_base = appdata / "SnapmakerOrcaSlicer"
+
+    # Bambu Studio
+    bambu_base = appdata / "BambuStudio"
+
+    # Elegoo Slicer (based on OrcaSlicer)
+    elegoo_base = appdata / "ElegooSlicer"
+
+    # Creality Print on Windows
+    # Typically in %APPDATA%\Creality\Creality Print\7.0
+    creality_base = appdata / "Creality" / "Creality Print"
+
+    orca_dirs = _detect_user_dirs(orca_base)
+    snapmaker_dirs = _detect_user_dirs(snapmaker_base)
+    bambu_dirs = _detect_user_dirs(bambu_base)
+    elegoo_dirs = _detect_user_dirs(elegoo_base)
+
+    # Detect Creality Print version on Windows
+    creality_dirs = []
+    for version in ["7.0", "6.0"]:
+        version_dir = creality_base / version
+        if version_dir.exists():
+            creality_dirs = [version_dir]
+            break
+
+    return [
+        Slicer(
+            key="orcaslicer",
+            display="Orca Slicer",
+            default_profile_dirs=orca_dirs if orca_dirs else [
+                orca_base / "user" / "default"],
+        ),
+        Slicer(
+            key="bambustudio",
+            display="Bambu Studio",
+            default_profile_dirs=bambu_dirs if bambu_dirs else [
+                bambu_base / "user" / "default"],
+        ),
+        Slicer(
+            key="snapmakerorca",
+            display="Snapmaker Orca",
+            default_profile_dirs=snapmaker_dirs if snapmaker_dirs else [
+                snapmaker_base / "user" / "default"],
+        ),
+        Slicer(
+            key="crealityprint",
+            display="Creality Print",
+            default_profile_dirs=creality_dirs if creality_dirs else [
+                creality_base / "7.0"],
+        ),
+        Slicer(
+            key="elegooslicer",
+            display="Elegoo Slicer",
+            default_profile_dirs=elegoo_dirs if elegoo_dirs else [
+                elegoo_base / "user" / "default"],
+        ),
+    ]
+
+
+def _get_default_slicers() -> list[Slicer]:
+    """
+    Get default slicer paths for the current platform.
+    """
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        return _macos_default_slicers()
+    elif system == "Windows":
+        return _windows_default_slicers()
+    else:  # Linux or other Unix-like
+        # Linux paths are similar to macOS but in ~/.config or ~/.local/share
+        # For now, use macOS-like paths as a fallback
+        # TODO: Add proper Linux support
+        return _macos_default_slicers()
 
 
 # ---- Config -------------------------------------------------------------------
@@ -970,7 +1059,7 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
 def cmd_init(args: argparse.Namespace) -> int:
     ensure_git_available()
 
-    slicers = _macos_default_slicers()
+    slicers = _get_default_slicers()
 
     if args.remote:
         remote = args.remote

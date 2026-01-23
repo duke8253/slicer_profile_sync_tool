@@ -1,11 +1,32 @@
 # Slicer Profile Sync Tool
 
-A Python-based tool to sync 3D printer slicer profiles (Bambu Studio, OrcaSlicer, and more) using a private GitHub repository as the sync backend.
+A cross-platform Python tool to sync 3D printer slicer profiles (Bam## Supported Slicers
+
+All slicers support automatic detection of numeric user ID subdirectories.
+
+### Profile Locations
+
+**macOS:**
+- Orca Slicer: `~/Library/Application Support/OrcaSlicer/user/<id>/`
+- Bambu Studio: `~/Library/Application Support/BambuStudio/user/<id>/`
+- Snapmaker Orca: `~/Library/Application Support/SnapmakerOrcaSlicer/user/<id>/`
+- Creality Print: `~/Library/Application Support/Creality/Creality Print/7.0/`
+- Elegoo Slicer: `~/Library/Application Support/ElegooSlicer/user/<id>/`
+
+**Windows:**
+- Orca Slicer: `%APPDATA%\OrcaSlicer\user\<id>\`
+- Bambu Studio: `%APPDATA%\BambuStudio\user\<id>\`
+- Snapmaker Orca: `%APPDATA%\SnapmakerOrcaSlicer\user\<id>\`
+- Creality Print: `%APPDATA%\Creality\Creality Print\7.0\`
+- Elegoo Slicer: `%APPDATA%\ElegooSlicer\user\<id>\`, OrcaSlicer, and more) using a private GitHub repository as the sync backend.
+
+**Platforms:** macOS, Windows (Linux coming soon)
 
 ## Features
 
 - 🎨 **Colorful terminal output** - color-coded messages for better readability
-- 🔍 **Auto-detection** of slicer profile directories on macOS
+- 💻 **Cross-platform** - works on macOS and Windows
+- 🔍 **Auto-detection** of slicer profile directories
 - 🔗 **GitHub integration** with SSH/HTTPS support and access validation
 - 💬 **User-friendly language** - no git jargon, clear explanations
 - ⚔️ **Interactive conflict resolution** - guided editor-based conflict fixing
@@ -18,11 +39,15 @@ A Python-based tool to sync 3D printer slicer profiles (Bambu Studio, OrcaSlicer
 ## Requirements
 
 - Python 3.7+
-- Git CLI installed (Xcode Command Line Tools on macOS)
+- Git CLI installed
+  - **macOS**: Xcode Command Line Tools or Homebrew git
+  - **Windows**: [Git for Windows](https://git-scm.com/download/win)
 - Private GitHub repository for storing profiles
 - SSH keys configured for GitHub (recommended) or HTTPS credentials
 
 ## Installation
+
+### macOS / Linux
 
 ```bash
 # Clone this repository
@@ -33,12 +58,29 @@ cd slicer_profile_sync_tool
 chmod +x profilesync.py
 ```
 
+### Windows
+
+```powershell
+# Clone this repository
+git clone <your-dev-repo>
+cd slicer_profile_sync_tool
+
+# Run directly with Python (no chmod needed on Windows)
+python profilesync.py
+```
+
 ## Usage
 
 ### Initial Setup
 
+**macOS / Linux:**
 ```bash
 ./profilesync.py init
+```
+
+**Windows:**
+```powershell
+python profilesync.py init
 ```
 
 This will:
@@ -50,8 +92,14 @@ This will:
 
 ### Syncing Profiles
 
+**macOS / Linux:**
 ```bash
 ./profilesync.py sync
+```
+
+**Windows:**
+```powershell
+python profilesync.py sync
 ```
 
 Interactive options:
@@ -62,8 +110,14 @@ Interactive options:
 
 ### View Configuration
 
+**macOS / Linux:**
 ```bash
 ./profilesync.py config
+```
+
+**Windows:**
+```powershell
+python profilesync.py config
 ```
 
 ## How It Works
@@ -129,7 +183,7 @@ Supported editors: VS Code, Vim, Nano, Sublime Text, or custom command.
 
 ## Future Enhancements
 
-- 🪟 Windows support (path detection)
+- 🐧 Linux support (path detection)
 - 🖥️ GUI/web interface
 - 🏠 Multi-profile support (home/work environments)
 - 📁 Subdirectory filtering (filament-only sync)
