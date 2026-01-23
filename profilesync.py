@@ -37,6 +37,65 @@ DEFAULT_CONFIG_DIR = SCRIPT_DIR
 DEFAULT_DATA_DIR = SCRIPT_DIR / "data"
 
 
+# ---- Color utilities -----------------------------------------------------------
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    # Basic colors
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[34m'
+    CYAN = '\033[96m'
+    MAGENTA = '\033[95m'
+    WHITE = '\033[97m'
+    GRAY = '\033[90m'
+
+    # Styles
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    RESET = '\033[0m'
+
+
+def color(text: str, color_code: str, bold: bool = False) -> str:
+    """Wrap text in ANSI color codes"""
+    if not sys.stdout.isatty():
+        return text  # Don't colorize if not in a terminal
+
+    prefix = f"{Colors.BOLD}{color_code}" if bold else color_code
+    return f"{prefix}{text}{Colors.RESET}"
+
+
+def success(text: str) -> str:
+    """Green text for success messages"""
+    return color(text, Colors.GREEN)
+
+
+def warning(text: str) -> str:
+    """Yellow text for warnings"""
+    return color(text, Colors.YELLOW)
+
+
+def error(text: str) -> str:
+    """Red text for errors"""
+    return color(text, Colors.RED)
+
+
+def info(text: str) -> str:
+    """Magenta text for informational messages (counts, etc.)"""
+    return color(text, Colors.MAGENTA)
+
+
+def highlight(text: str) -> str:
+    """Bold white text for emphasis"""
+    return color(text, Colors.WHITE, bold=True)
+
+
+def dim(text: str) -> str:
+    """Dimmed text for less important info - using blue for better readability"""
+    return color(text, Colors.BLUE)
+
+
 # ---- Slicer definitions (macOS) ------------------------------------------------
 
 @dataclass(frozen=True)
@@ -282,15 +341,15 @@ def validate_git_remote(remote: str) -> tuple[bool, str]:
     result = run(["git", "ls-remote", remote, "HEAD"], check=False)
 
     if result.returncode != 0:
-        error = result.stderr.strip()
-        if "Could not resolve host" in error or "Could not read from remote" in error:
-            return False, f"Cannot reach remote repository. Check URL and network connection.\n{error}"
-        elif "Permission denied" in error or "Authentication failed" in error:
-            return False, f"Access denied. Check your SSH keys or credentials.\n{error}"
-        elif "Repository not found" in error or "does not appear to be a git repository" in error:
-            return False, f"Repository not found or not accessible.\n{error}"
+        err_msg = result.stderr.strip()
+        if "Could not resolve host" in err_msg or "Could not read from remote" in err_msg:
+            return False, f"Cannot reach remote repository. Check URL and network connection.\n{err_msg}"
+        elif "Permission denied" in err_msg or "Authentication failed" in err_msg:
+            return False, f"Access denied. Check your SSH keys or credentials.\n{err_msg}"
+        elif "Repository not found" in err_msg or "does not appear to be a git repository" in err_msg:
+            return False, f"Repository not found or not accessible.\n{err_msg}"
         else:
-            return False, f"Cannot access remote repository.\n{error}"
+            return False, f"Cannot access remote repository.\n{err_msg}"
 
     return True, ""
 
@@ -315,6 +374,14 @@ def clone_or_open_repo(repo_dir: Path, remote: str) -> None:
 
 def git_pull_rebase(repo_dir: Path) -> None:
     run(["git", "fetch", "--all"], cwd=repo_dir)
+
+    # Check if remote branch exists before trying to pull
+    result = run(["git", "rev-parse", "--verify", "origin/main"],
+                 cwd=repo_dir, check=False)
+    if result.returncode != 0:
+        # Remote branch doesn't exist yet, nothing to pull
+        return
+
     # Rebase keeps a cleaner history for "export then push" flows.
     run(["git", "pull", "--rebase"], cwd=repo_dir)
 
@@ -391,7 +458,7 @@ def git_remote_has_profiles(repo_dir: Path) -> bool:
 
 
 def initialize_empty_repo(repo_dir: Path, remote: str) -> None:
-    print("\nSetting up sync folder for the first time...")
+    print(info("\nSetting up sync folder for the first time..."))
 
     # Create initial README
     readme_path = repo_dir / "README.md"
@@ -417,7 +484,7 @@ def initialize_empty_repo(repo_dir: Path, remote: str) -> None:
     if result.returncode != 0:
         run(["git", "branch", "-M", "master"], cwd=repo_dir)
 
-    print("✓ Sync folder ready (not yet pushed to GitHub)")
+    print(success("✓ Sync folder ready") + dim(" (not yet pushed to GitHub)"))
 
 
 def git_status_porcelain(repo_dir: Path) -> str:
@@ -652,12 +719,13 @@ def interactive_configure_paths(enabled: list[str], slicers: list[Slicer]) -> di
 
 
 def show_local_remote_summary(cfg: Config) -> None:
-    print("\nSync status:")
-    print(f"  Local folder: {cfg.repo_dir}")
-    print(f"  GitHub repo:  {cfg.github_remote}")
+    print(f"\n{highlight('Sync status:')}")
+    print(f"  {dim('Local folder:')} {cfg.repo_dir}")
+    print(f"  {dim('GitHub repo:')}  {cfg.github_remote}")
 
     # Fetch latest from remote to ensure we have up-to-date info
-    run(["git", "fetch", "origin"], cwd=cfg.repo_dir, check=False)
+    # Use --prune to remove stale remote-tracking branches
+    run(["git", "fetch", "origin", "--prune"], cwd=cfg.repo_dir, check=False)
 
     # Check if profiles actually exist on GitHub (origin/main)
     if git_remote_has_profiles(cfg.repo_dir):
@@ -675,13 +743,13 @@ def show_local_remote_summary(cfg: Config) -> None:
             try:
                 dt = datetime.fromisoformat(out.replace('Z', '+00:00'))
                 time_str = dt.strftime("%B %d, %Y at %I:%M %p")
-                print(f"  Last sync:    {time_str}")
+                print(f"  {dim('Last sync:')}    {info(time_str)}")
             except Exception:
-                print(f"  Last sync:    {out}")
+                print(f"  {dim('Last sync:')}    {out}")
         else:
-            print(f"  Last sync:    Unknown")
+            print(f"  {dim('Last sync:')}    Unknown")
     else:
-        print(f"  Last sync:    Never (no profiles on GitHub yet)")
+        print(f"  {dim('Last sync:')}    Never (no profiles on GitHub yet)")
 
     # Show a quick file inventory + mtimes from sync directory
     for slicer in cfg.enabled_slicers:
@@ -695,10 +763,10 @@ def show_local_remote_summary(cfg: Config) -> None:
         newest_time = datetime.fromtimestamp(
             newest.stat().st_mtime).strftime("%B %d, %Y at %I:%M %p")
         display_name = SLICER_DISPLAY_NAMES.get(slicer, slicer.capitalize())
-        print(f"\n  {display_name}:")
-        print(f"    {len(files)} profile files")
-        print(f"    Last modified: {newest.name}")
-        print(f"    {newest_time}")
+        print(f"\n  {highlight(display_name)}:")
+        print(f"    {info(str(len(files)) + ' profile files')}")
+        print(f"    {dim('Last modified:')} {newest.name}")
+        print(f"    {dim(newest_time)}")
 
 
 def open_editor(cfg: Config, path: Path) -> None:
@@ -748,14 +816,14 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
     conflicted_files = git_get_conflicted_files(repo_dir)
 
     if not conflicted_files:
-        print("\nNo conflicted files found, but sync operation failed.")
+        print(error("\nNo conflicted files found, but sync operation failed."))
         print("Please check sync folder manually:")
         print(f"  cd {repo_dir}")
         print(f"  git status")
         return False
 
     print("\n" + "="*60)
-    print("MERGE CONFLICTS DETECTED")
+    print(warning("MERGE CONFLICTS DETECTED"))
     print("="*60)
     print("\nThe following files have conflicts:")
 
@@ -858,25 +926,27 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
             )
 
             if result.returncode != 0:
-                print("\nCommit failed.")
+                print(error("\nCommit failed."))
                 print(f"Output: {result.stderr}")
                 print(f"Check: {repo_dir}")
                 return False
 
-        print("✓ Conflicts resolved successfully!")
+        print(success("✓ Conflicts resolved successfully!"))
         return True
     else:
         # User declined to resolve conflicts - abort the rebase/merge
-        print("\nAborting sync...")
+        print(warning("\nAborting sync..."))
 
         # Check if we're in a rebase
         if (repo_dir / ".git" / "rebase-merge").exists() or (repo_dir / ".git" / "rebase-apply").exists():
             result = run(["git", "rebase", "--abort"],
                          cwd=repo_dir, check=False)
             if result.returncode == 0:
-                print("✓ Sync cancelled. Your local files are unchanged.")
+                print(success("✓ Sync cancelled.") +
+                      " Your local files are unchanged.")
             else:
-                print("⚠ Warning: Could not automatically abort. Check the sync folder:")
+                print(warning("⚠ Warning:") +
+                      " Could not automatically abort. Check the sync folder:")
                 print(f"  cd {repo_dir}")
                 print(f"  git rebase --abort")
         else:
@@ -884,9 +954,11 @@ def interactive_resolve_conflicts(cfg: Config, repo_dir: Path) -> bool:
             result = run(["git", "merge", "--abort"],
                          cwd=repo_dir, check=False)
             if result.returncode == 0:
-                print("✓ Sync cancelled. Your local files are unchanged.")
+                print(success("✓ Sync cancelled.") +
+                      " Your local files are unchanged.")
             else:
-                print("⚠ Warning: Could not automatically abort. Check the sync folder:")
+                print(warning("⚠ Warning:") +
+                      " Could not automatically abort. Check the sync folder:")
                 print(f"  cd {repo_dir}")
                 print(f"  git merge --abort")
 
@@ -912,10 +984,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     # Validate the remote URL and check access
     is_valid, error_msg = validate_git_remote(remote)
     if not is_valid:
-        print(f"\nError: {error_msg}")
+        print(error(f"\nError: {error_msg}"))
         return 2
 
-    print("✓ Remote repository is accessible\n")
+    print(success("✓ Remote repository is accessible\n"))
 
     suggested_repo_dir = _suggest_repo_dir_from_remote(remote)
 
@@ -1055,17 +1127,20 @@ def cmd_sync(args: argparse.Namespace) -> int:
             if len(files) > 3:
                 print(f"    ... and {len(files) - 3} more")
     else:
-        print("\n✓ No local changes detected")
+        print(success("\n✓ No local changes detected"))
 
     # 4) Ask what the user wants to do
     if args.action:
         action = args.action
     else:
         print("\nWhat would you like to do?")
-        print("  1) Push: save your changes to GitHub")
-        print("  2) Pull: download latest profiles from GitHub to your slicer")
-        print("  3) Pick version: restore a specific saved version to your slicer")
-        print("  4) Both: save to GitHub then download latest (recommended)")
+        print(f"  {success('1)')} {highlight('Push')}: save your changes to GitHub")
+        print(
+            f"  {success('2)')} {highlight('Pull')}: download latest profiles from GitHub to your slicer")
+        print(
+            f"  {success('3)')} {highlight('Pick version')}: restore a specific saved version to your slicer")
+        print(
+            f"  {success('4)')} {highlight('Both')}: save to GitHub then download latest (recommended)")
 
         action = input("Selection [4]: ").strip() or "4"
 
@@ -1086,8 +1161,27 @@ def _do_push(cfg: Config) -> int:
     # First, commit any exported changes
     committed = git_commit_if_needed(cfg.repo_dir, get_computer_id())
 
-    if not committed:
-        print("No changes to save.")
+    # Check if remote is behind local (e.g., repo was deleted and recreated)
+    needs_push = False
+    if git_has_commits(cfg.repo_dir):
+        # Check if remote has our commits
+        result = run(["git", "rev-parse", "HEAD"],
+                     cwd=cfg.repo_dir, check=False)
+        if result.returncode == 0:
+            local_head = result.stdout.strip()
+            result = run(["git", "rev-parse", "origin/main"],
+                         cwd=cfg.repo_dir, check=False)
+            if result.returncode != 0:
+                # Remote branch doesn't exist - need to push
+                needs_push = True
+            else:
+                remote_head = result.stdout.strip()
+                if local_head != remote_head:
+                    # Local and remote are different
+                    needs_push = True
+
+    if not committed and not needs_push:
+        print(success("✓ Everything is already synced to GitHub."))
         return 0
 
     # Now try to pull with rebase to detect conflicts
@@ -1101,10 +1195,10 @@ def _do_push(cfg: Config) -> int:
             if not interactive_resolve_conflicts(cfg, cfg.repo_dir):
                 return 1
             # After resolving, continue to push
-            print("Pushing resolved changes to GitHub...")
+            print(info("Pushing resolved changes to GitHub..."))
         else:
             # Some other error
-            print(f"\nError syncing with GitHub: {error_msg}")
+            print(error(f"\nError syncing with GitHub: {error_msg}"))
             return 1
 
     # Now push to GitHub
@@ -1115,7 +1209,7 @@ def _do_push(cfg: Config) -> int:
 
         if result.returncode != 0:
             # No upstream set, this is likely the first push
-            print("Setting up remote tracking...")
+            print(info("Setting up remote tracking..."))
             push_result = run(["git", "push", "-u", "origin",
                               "main"], cwd=cfg.repo_dir, check=False)
 
@@ -1134,11 +1228,11 @@ def _do_push(cfg: Config) -> int:
             # Normal push
             git_push(cfg.repo_dir)
 
-        print("✓ Saved to GitHub.")
+        print(success("✓ Saved to GitHub."))
         return 0
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.strip() or str(e)
-        print(f"\nError saving to GitHub: {error_msg}")
+        print(error(f"\nError saving to GitHub: {error_msg}"))
         return 1
 
 
@@ -1164,19 +1258,19 @@ def _do_pull_import(cfg: Config) -> int:
                 return 1
             # Continue with import after resolving
         else:
-            print(f"\nError downloading from GitHub: {error_msg}")
+            print(error(f"\nError downloading from GitHub: {error_msg}"))
             return 1
 
     imported = import_from_repo_to_slicers(cfg)
     if imported:
-        print(
-            f"✓ Downloaded {len(imported)} file(s) from GitHub to your slicer folders:")
+        print(success(
+            f"✓ Downloaded {len(imported)} file(s) from GitHub to your slicer folders:"))
         for src, dst in imported[:5]:
             print(f"  • {dst.name}")
         if len(imported) > 5:
             print(f"  ... and {len(imported) - 5} more")
     else:
-        print("✓ All files are up to date.")
+        print(success("✓ All files are up to date."))
     return 0
 
 
@@ -1240,13 +1334,15 @@ def _do_pick_version_import(cfg: Config) -> int:
     git_checkout_commit(cfg.repo_dir, commit_hash)
     imported = import_from_repo_to_slicers(cfg)
     if imported:
-        print(f"✓ Restored {len(imported)} file(s) from {selected['time']}:")
+        print(
+            success(f"✓ Restored {len(imported)} file(s) from {selected['time']}:"))
         for src, dst in imported[:5]:
             print(f"  • {dst.name}")
         if len(imported) > 5:
             print(f"  ... and {len(imported) - 5} more")
     else:
-        print(f"✓ Version from {selected['time']} matches current files.")
+        print(
+            success(f"✓ Version from {selected['time']} matches current files."))
 
     if confirm("Return to latest version?", default=True):
         try:
