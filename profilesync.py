@@ -482,8 +482,35 @@ def git_pull_rebase(repo_dir: Path) -> None:
         # Remote branch doesn't exist yet, nothing to pull
         return
 
-    # Rebase keeps a cleaner history for "export then push" flows.
-    run(["git", "pull", "--rebase"], cwd=repo_dir)
+    # Check if there are any changes to pull
+    local_head = run(["git", "rev-parse", "HEAD"],
+                     cwd=repo_dir, check=False).stdout.strip()
+    remote_head = run(["git", "rev-parse", "origin/main"],
+                      cwd=repo_dir, check=False).stdout.strip()
+
+    if local_head == remote_head:
+        # Already up to date, no need to rebase
+        return
+
+    # Check if there are uncommitted changes that would conflict with rebase
+    status = git_status_porcelain(repo_dir)
+    if status.strip():
+        # There are uncommitted changes - stash them temporarily
+        run(["git", "stash", "push", "-m",
+            "profilesync auto-stash before pull"], cwd=repo_dir)
+        try:
+            # Use rebase explicitly for better cross-platform compatibility
+            run(["git", "rebase", "origin/main"], cwd=repo_dir)
+        finally:
+            # Try to restore stashed changes (may conflict, which is okay)
+            result = run(["git", "stash", "pop"], cwd=repo_dir, check=False)
+            if result.returncode != 0:
+                # Stash pop failed (likely due to conflicts) - drop the stash
+                # The files are already in the working directory from the pull
+                run(["git", "stash", "drop"], cwd=repo_dir, check=False)
+    else:
+        # No uncommitted changes, safe to rebase
+        run(["git", "rebase", "origin/main"], cwd=repo_dir)
 
 
 def git_has_commits(repo_dir: Path) -> bool:
