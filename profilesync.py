@@ -31,11 +31,14 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+# Cross-platform colored terminal output
+COLORAMA_AVAILABLE = False
 try:
-    import colorama  # Cross-platform colored terminal output
-    colorama.init(autoreset=True)  # Auto-reset colors after each print
+    import colorama
+    colorama.init(autoreset=True)
+    COLORAMA_AVAILABLE = True
 except ImportError:
-    # colorama not installed - colors may not work on Windows
+    # colorama not installed - colors will be disabled
     pass
 
 
@@ -67,9 +70,10 @@ class Colors:
 
 
 def color(text: str, color_code: str, bold: bool = False) -> str:
-    """Wrap text in ANSI color codes"""
-    if not sys.stdout.isatty():
-        return text  # Don't colorize if not in a terminal
+    """Wrap text in ANSI color codes (cross-platform with colorama)"""
+    # Disable colors if not in a TTY or colorama not available
+    if not sys.stdout.isatty() or not COLORAMA_AVAILABLE:
+        return text
 
     prefix = f"{Colors.BOLD}{color_code}" if bold else color_code
     return f"{prefix}{text}{Colors.RESET}"
