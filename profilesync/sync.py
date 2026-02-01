@@ -23,6 +23,7 @@ SLICER_DISPLAY_NAMES = {
 def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
     """
     Copy JSON files from slicer profile dirs -> repo/profiles/<slicer>/
+    Also deletes files from repo that no longer exist in slicer dirs.
     Returns list of (src, dst) copied.
     """
     copied: list[tuple[Path, Path]] = []
@@ -33,6 +34,9 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
         dst_root = repo_dir / REPO_PROFILES_DIR / slicer_key
         dst_root.mkdir(parents=True, exist_ok=True)
 
+        # Track which files should exist in the repo (based on slicer)
+        expected_repo_files: set[Path] = set()
+
         for d in dirs:
             if not d.exists():
                 continue
@@ -40,11 +44,22 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
                 # Preserve relative structure under each configured dir to avoid filename collisions
                 rel = src.relative_to(d)
                 dst = dst_root / rel
+                expected_repo_files.add(dst)
+
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if dst.exists() and sha256_file(src) == sha256_file(dst):
                     continue
                 shutil.copy2(src, dst)
                 copied.append((src, dst))
+
+        # Delete files from repo that no longer exist in slicer
+        if dst_root.exists():
+            for repo_file in dst_root.rglob("*.json"):
+                if repo_file not in expected_repo_files:
+                    repo_file.unlink()
+                    # Track deletions as special entries (use None as src to indicate deletion)
+                    copied.append((None, repo_file))  # type: ignore
+
     return copied
 
 
@@ -152,6 +167,7 @@ def group_by_slicer_and_type(files: list[tuple[Path, Path]], cfg: Config, repo_d
 def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]], message: str) -> None:
     """
     Display files grouped by slicer and profile type.
+    Handles both additions/modifications (src is Path) and deletions (src is None).
     """
     total = sum(len(files) for types in grouped.values()
                 for files in types.values())
@@ -165,10 +181,23 @@ def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]]
         print(f"\n  {highlight(display_name)} ({total_for_slicer} files):")
 
         for profile_type, files in sorted(types.items()):
-            print(f"    {info(profile_type)} ({len(files)}):")
+            # Count additions/modifications vs deletions
+            additions = sum(1 for src, dst in files if src is not None)
+            deletions = sum(1 for src, dst in files if src is None)
+
+            count_str = f"{len(files)}"
+            if deletions > 0:
+                count_str = f"{additions} added/modified, {deletions} deleted"
+
+            print(f"    {info(profile_type)} ({count_str}):")
             # Show first 2 files for each type
             for src, dst in files[:2]:
-                print(f"      • {dst.name}")
+                if src is None:
+                    # Deletion
+                    print(f"      - {dst.name}")
+                else:
+                    # Addition/modification
+                    print(f"      • {dst.name}")
             if len(files) > 2:
                 print(f"      ... and {len(files) - 2} more")
 
