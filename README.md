@@ -8,7 +8,7 @@ A cross-platform Python tool to sync 3D printer slicer profiles (Orca Slicer, Ba
 
 If you use multiple computers, you've probably experienced this:
 - You tune a perfect filament profile on your desktop
-- Go to print on your laptop... and it's not there  
+- Go to print on your laptop... and it's not there
 - Try to remember which machine has the latest settings
 - Waste time manually copying .json files around
 
@@ -375,15 +375,8 @@ Contributions welcome! Please:
 5. Submit a pull request
 
 ## Future Enhancements
-
-- ✅ Deletion sync (push direction) - **DONE**
-- 🔜 Deletion sync (pull direction)
-- 🔜 Automatic sync on slicer close/open
-- 🔜 GUI/web interface
-- 🔜 Multi-profile support (home/work/travel)
-- 🔜 Selective sync (filament-only, etc.)
-- 🔜 Integration with slicer plugins
-- 🔜 Packaging as standalone executable
+- Selective sync (filament-only, etc.)
+- Packaging as standalone executable
 
 ## License
 
