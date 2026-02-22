@@ -204,16 +204,13 @@ def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]]
                 count_str = f"{additions} added/modified, {deletions} deleted"
 
             print(f"    {info(profile_type)} ({count_str}):")
-            # Show first 2 files for each type
-            for src, dst in files[:2]:
+            for src, dst in files:
                 if src is None:
                     # Deletion
                     print(f"      - {dst.name}")
                 else:
                     # Addition/modification
                     print(f"      • {dst.name}")
-            if len(files) > 2:
-                print(f"      ... and {len(files) - 2} more")
 
 
 def is_json_file(p: Path) -> bool:

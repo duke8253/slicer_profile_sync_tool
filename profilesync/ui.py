@@ -124,8 +124,5 @@ def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]]
 
         for profile_type, files in sorted(types.items()):
             print(f"    {info(profile_type)} ({len(files)}):")
-            # Show first 2 files for each type
-            for src, dst in files[:2]:
+            for src, dst in files:
                 print(f"      • {dst.name}")
-            if len(files) > 2:
-                print(f"      ... and {len(files) - 2} more")
