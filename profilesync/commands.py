@@ -530,6 +530,18 @@ def cmd_sync(args: argparse.Namespace) -> int:
     # 2) Export current slicer state to see what changed
     exported = export_from_slicers_to_repo(cfg)
 
+    # ─── Interactive TUI mode ───────────────────────────────────────────
+    if not args.action:
+        from .tui import SyncApp, build_status_text
+        status_text = build_status_text(
+            cfg, exported, bool(remote_has_commits))
+        app = SyncApp(
+            cfg=cfg, exported=exported, status_text=status_text)
+        result_code = app.run()
+        return result_code if isinstance(result_code, int) else 0
+
+    # ─── Non-interactive (--action) mode ────────────────────────────────
+
     # 3) Show what changed locally
     if exported:
         grouped = group_by_slicer_and_type(exported, cfg, cfg.repo_dir)
@@ -632,7 +644,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         print(
             f"  {dim('3)')} {highlight('Pick version')}: restore a specific saved version to your slicer")
         print(
-            f"  {dim('4)')} {highlight('Both')}: save to server then download latest (recommended)")
+            f"  {dim('4)')} {highlight('Full sync')}: save to server then download latest (recommended)")
         print(f"  {dim('Q)')} Quit")
 
         action = input("Selection [4]: ").strip() or "4"
@@ -641,27 +653,27 @@ def cmd_sync(args: argparse.Namespace) -> int:
         print(info("\nAborted. No changes were made to remote or local files."))
         return 0
     elif action in ("1", "push"):
-        return do_push(cfg)
+        return do_push(cfg, exported=exported)
     elif action in ("2", "pull"):
         return do_pull_import(cfg)
     elif action in ("3", "pick"):
         return do_pick_version_import(cfg)
-    else:  # "4" or "both"
-        ret = do_push(cfg)
+    else:  # "4" or "full sync"
+        ret = do_push(cfg, exported=exported)
         if ret != 0:
             return ret
         return do_pull_import(cfg)
 
 
-def do_push(cfg: Config) -> int:
-    """Push changes to GitHub."""
-    # First, commit any exported changes
+def do_push(cfg: Config, exported: list[tuple[Path, Path]] | None = None) -> int:
+    """Push all exported changes to server (non-interactive / --action mode)."""
+
+    # --- Commit and push ----------------------------------------------------
     committed = git_commit_if_needed(cfg.repo_dir, get_computer_id())
 
-    # Check if remote is behind local (e.g., repo was deleted and recreated)
+    # Check if remote is behind local
     needs_push = False
     if git_has_commits(cfg.repo_dir):
-        # Check if remote has our commits
         result = run(["git", "rev-parse", "HEAD"],
                      cwd=cfg.repo_dir, check=False)
         if result.returncode == 0:
@@ -669,12 +681,10 @@ def do_push(cfg: Config) -> int:
             result = run(["git", "rev-parse", "origin/main"],
                          cwd=cfg.repo_dir, check=False)
             if result.returncode != 0:
-                # Remote branch doesn't exist - need to push
                 needs_push = True
             else:
                 remote_head = result.stdout.strip()
                 if local_head != remote_head:
-                    # Local and remote are different
                     needs_push = True
 
     if not committed and not needs_push:
@@ -682,7 +692,7 @@ def do_push(cfg: Config) -> int:
             success(f"{get_check_symbol()} Everything is already synced to server."))
         return 0
 
-    # Check if we need to sync with remote first (local and remote have diverged)
+    # Check for divergence
     if git_has_commits(cfg.repo_dir):
         result = run(["git", "rev-parse", "origin/main"],
                      cwd=cfg.repo_dir, check=False)
@@ -691,14 +701,10 @@ def do_push(cfg: Config) -> int:
             local_head = run(["git", "rev-parse", "HEAD"],
                              cwd=cfg.repo_dir).stdout.strip()
 
-            # Check if remote is an ancestor of local (normal case: local is ahead)
-            # If remote IS an ancestor, we can safely fast-forward push
             result = run(["git", "merge-base", "--is-ancestor", remote_head, local_head],
                          cwd=cfg.repo_dir, check=False)
 
             if result.returncode != 0:
-                # Remote is NOT an ancestor of local - they have diverged
-                # This means both local and remote have commits the other doesn't have
                 print(
                     warning("\n⚠ Warning: Server has different profiles than your local files."))
                 print(
@@ -711,48 +717,39 @@ def do_push(cfg: Config) -> int:
                         "Tip: Use 'profilesync sync --action pull' to download server's version first."))
                     return 0
 
-    # Now try to pull with rebase to detect conflicts
+    # Pull with rebase to detect conflicts
     try:
         git_pull_rebase(cfg.repo_dir)
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.strip() or str(e)
 
         if git_has_conflicts(cfg.repo_dir):
-            # Real conflict - help user resolve interactively
             if not interactive_resolve_conflicts(cfg, cfg.repo_dir):
                 return 1
-            # After resolving, continue to push
             print(info("Pushing resolved changes to server..."))
         else:
-            # Some other error
             print(error(f"\nError syncing with server: {error_msg}"))
             return 1
 
-    # Now push to GitHub
+    # Push to server
     try:
-        # Check if we need to set upstream (first push)
         result = run(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
                      cwd=cfg.repo_dir, check=False)
 
         if result.returncode != 0:
-            # No upstream set, this is likely the first push
             print(info("Setting up remote tracking..."))
             push_result = run(["git", "push", "-u", "origin",
                               "main"], cwd=cfg.repo_dir, check=False)
 
-            # If main doesn't exist on remote, the branch is probably called master locally
             if push_result.returncode != 0:
-                # Check current branch name
                 branch_result = run(
                     ["git", "branch", "--show-current"], cwd=cfg.repo_dir, check=False)
                 current_branch = branch_result.stdout.strip(
                 ) if branch_result.returncode == 0 else "main"
 
-                # Push with the actual current branch name
                 run(["git", "push", "-u", "origin",
                     current_branch], cwd=cfg.repo_dir)
         else:
-            # Normal push
             git_push(cfg.repo_dir)
 
         print(success(f"{get_check_symbol()} Saved to server."))
@@ -764,23 +761,20 @@ def do_push(cfg: Config) -> int:
 
 
 def do_pull_import(cfg: Config) -> int:
-    """Pull from GitHub and import to slicers."""
+    """Pull from server and import all profiles (non-interactive / --action mode)."""
+
     # Ensure we are on a real branch, not detached.
-    # You can make this configurable (main/master).
     try:
         git_checkout_branch(cfg.repo_dir, "main")
     except subprocess.CalledProcessError:
-        # fallback
         try:
             git_checkout_branch(cfg.repo_dir, "master")
         except subprocess.CalledProcessError:
             pass
 
     # For pull operations, discard any local uncommitted changes
-    # We want to use the remote files, not merge with local exports
     status = git_status_porcelain(cfg.repo_dir)
     if status.strip():
-        # There are uncommitted changes (from export) - warn user
         print(warning(
             "\n⚠ Warning: Your local slicer files differ from the last saved version."))
         print("Pulling will overwrite your current slicer files with the version from server.\n")
@@ -791,9 +785,7 @@ def do_pull_import(cfg: Config) -> int:
                 "Tip: Use 'profilesync sync --action push' to save your local changes first."))
             return 0
 
-        # User confirmed - discard local changes (both tracked and untracked)
         run(["git", "reset", "--hard", "HEAD"], cwd=cfg.repo_dir)
-        # Also remove untracked files (new files from export)
         run(["git", "clean", "-fd"], cwd=cfg.repo_dir)
 
     try:
@@ -804,11 +796,11 @@ def do_pull_import(cfg: Config) -> int:
         if git_has_conflicts(cfg.repo_dir):
             if not interactive_resolve_conflicts(cfg, cfg.repo_dir):
                 return 1
-            # Continue with import after resolving
         else:
             print(error(f"\nError downloading from server: {error_msg}"))
             return 1
 
+    # Import ALL profiles (no file selection in --action mode)
     imported = import_from_repo_to_slicers(cfg)
     if imported:
         grouped = group_by_slicer_and_type(
@@ -816,7 +808,8 @@ def do_pull_import(cfg: Config) -> int:
         display_grouped_files(grouped, success(
             f"{get_check_symbol()} Downloaded {{count}} file(s) from server to your slicer folders:"))
     else:
-        print(success(f"{get_check_symbol()} All files are up to date."))
+        print(
+            success(f"{get_check_symbol()} All profiles are already up to date."))
     return 0
 
 

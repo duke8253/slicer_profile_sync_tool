@@ -1,3 +1,6 @@
 # Cross-platform colored terminal output
 # Enables ANSI color codes on Windows
 colorama>=0.4.6
+
+# Rich terminal UI for interactive file selection
+textual>=1.0.0

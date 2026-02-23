@@ -216,3 +216,112 @@ def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]]
 def is_json_file(p: Path) -> bool:
     """Check if path is a JSON file."""
     return p.is_file() and p.suffix.lower() == ".json"
+
+
+def collect_server_profiles(cfg: Config) -> list[dict]:
+    """
+    Collect all profiles available on the server (in the repo) and flag
+    whether each one already exists locally in the slicer folder.
+
+    Returns a list of dicts:
+        {
+            "slicer_key": str,
+            "profile_type": str,       # e.g. Filament, Process, Printer
+            "filename": str,
+            "repo_path": Path,         # absolute path inside repo
+            "local_path": Path | None, # matching slicer path or None
+            "matches_local": bool,     # True if hash matches / identical
+            "rel": PurePosixPath,      # relative path within slicer root
+        }
+    """
+    results: list[dict] = []
+    repo_dir = cfg.repo_dir
+
+    for slicer_key in cfg.enabled_slicers:
+        src_root = repo_dir / REPO_PROFILES_DIR / slicer_key
+        if not src_root.exists():
+            continue
+
+        dst_dirs = [Path(p)
+                    for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+        dst_base = dst_dirs[0] if dst_dirs else None
+
+        for src in src_root.rglob("*.json"):
+            rel = src.relative_to(src_root)
+            profile_type = rel.parts[0].capitalize() if rel.parts else "Other"
+
+            local_path = dst_base / rel if dst_base else None
+            matches = False
+            if local_path and local_path.exists():
+                matches = sha256_file(src) == sha256_file(local_path)
+
+            results.append({
+                "slicer_key": slicer_key,
+                "profile_type": profile_type,
+                "filename": src.name,
+                "repo_path": src,
+                "local_path": local_path,
+                "matches_local": matches,
+                "rel": rel,
+            })
+
+    return results
+
+
+def import_selected_profiles(cfg: Config, selected: list[dict]) -> list[tuple[Path, Path]]:
+    """
+    Import only the selected profiles from repo to slicer dirs.
+
+    Args:
+        cfg: Config object
+        selected: list of profile dicts as returned by collect_server_profiles()
+
+    Returns list of (src, dst) actually copied.
+    """
+    copied: list[tuple[Path, Path]] = []
+
+    for entry in selected:
+        slicer_key = entry["slicer_key"]
+        src = entry["repo_path"]
+        rel = entry["rel"]
+
+        dst_dirs = [Path(p)
+                    for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+        if not dst_dirs:
+            continue
+        dst_base = dst_dirs[0]
+        dst = dst_base / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        if dst.exists() and sha256_file(src) == sha256_file(dst):
+            continue  # already identical
+        shutil.copy2(src, dst)
+        copied.append((src, dst))
+
+    return copied
+
+
+def export_selected_to_repo(cfg: Config, selected_files: list[tuple[Path, Path]]) -> list[tuple[Path, Path]]:
+    """
+    Copy only the selected (src, dst) pairs to the repo.
+    Handles both modifications (src is a Path) and deletions (src is None).
+
+    Returns list of (src, dst) that were actually processed.
+    """
+    processed: list[tuple[Path, Path]] = []
+
+    for src, dst in selected_files:
+        if src is None:
+            # Deletion
+            if dst.exists():
+                dst.unlink()
+                processed.append((None, dst))  # type: ignore
+        else:
+            # Copy
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.exists() and sha256_file(src) == sha256_file(dst):
+                continue
+            shutil.copy2(src, dst)
+            processed.append((src, dst))
+
+    return processed
