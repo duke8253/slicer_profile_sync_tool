@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import difflib
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,7 @@ from .git import (
 )
 from .sync import (
     collect_server_profiles,
+    export_from_slicers_to_repo,
     export_selected_to_repo,
     import_from_repo_to_slicers,
     import_selected_profiles,
@@ -188,6 +190,17 @@ def build_status_text(
     return text
 
 
+# ── Base Screen ──────────────────────────────────────────────────────────────
+
+
+class SyncScreen(Screen):
+    """Base screen with a typed reference to the SyncApp."""
+
+    @property
+    def sync_app(self) -> "SyncApp":
+        return self.app  # type: ignore[return-value]
+
+
 # ── Textual App ─────────────────────────────────────────────────────────────
 
 
@@ -231,6 +244,17 @@ class SyncApp(App[int]):
         text-style: italic;
         color: $text-muted;
     }
+
+    #diff-title {
+        padding: 1 2;
+    }
+
+    #diff-view {
+        height: 1fr;
+        margin: 0 2;
+        overflow-y: auto;
+        padding: 0 1;
+    }
     """
 
     def __init__(
@@ -259,10 +283,80 @@ class SyncApp(App[int]):
             self.cfg, self.exported, remote_has_commits)
 
 
+# ── Diff Screen ─────────────────────────────────────────────────────────────
+
+
+class DiffScreen(SyncScreen):
+    """Display a unified diff between two file versions."""
+
+    BINDINGS = [
+        Binding("escape", "go_back", "Back"),
+        Binding("q", "go_back", "Back", show=False),
+    ]
+
+    def __init__(
+        self,
+        filename: str,
+        old_text: str,
+        new_text: str,
+        old_label: str = "server",
+        new_label: str = "local",
+    ) -> None:
+        super().__init__()
+        self._filename = filename
+        self._old_text = old_text
+        self._new_text = new_text
+        self._old_label = old_label
+        self._new_label = new_label
+
+    def compose(self) -> ComposeResult:
+        title = Text()
+        title.append(f"  Diff: {self._filename}", style="bold")
+        title.append(
+            f"  ({self._old_label} → {self._new_label})", style="dim")
+        yield Static(title, id="diff-title")
+        yield Static(self._build_diff(), id="diff-view")
+        yield Footer()
+
+    def _build_diff(self) -> Text:
+        old_lines = self._old_text.splitlines(keepends=True)
+        new_lines = self._new_text.splitlines(keepends=True)
+
+        diff_lines = list(difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=self._old_label,
+            tofile=self._new_label,
+        ))
+
+        if not diff_lines:
+            result = Text()
+            result.append("  Files are identical", style="dim italic")
+            return result
+
+        result = Text()
+        for line in diff_lines:
+            stripped = line.rstrip("\n")
+            if line.startswith("+++") or line.startswith("---"):
+                result.append(stripped + "\n", style="bold")
+            elif line.startswith("@@"):
+                result.append(stripped + "\n", style="cyan")
+            elif line.startswith("+"):
+                result.append(stripped + "\n", style="green")
+            elif line.startswith("-"):
+                result.append(stripped + "\n", style="red")
+            else:
+                result.append(stripped + "\n")
+        return result
+
+    def action_go_back(self) -> None:
+        self.sync_app.pop_screen()
+
+
 # ── Main Screen ─────────────────────────────────────────────────────────────
 
 
-class MainScreen(Screen):
+class MainScreen(SyncScreen):
     """Displays sync status and action menu."""
 
     BINDINGS = [
@@ -272,11 +366,11 @@ class MainScreen(Screen):
     def on_screen_resume(self) -> None:
         """Refresh the status panel every time this screen becomes active."""
         self.query_one("#status-panel", Static).update(
-            self.app.status_text)
+            self.sync_app.status_text)
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(self.app.status_text, id="status-panel")
+        yield Static(self.sync_app.status_text, id="status-panel")
         yield OptionList(
             Option(
                 Text.from_markup(
@@ -306,31 +400,31 @@ class MainScreen(Screen):
     ) -> None:
         oid = event.option_id
         if oid == "push":
-            if self.app.exported:
-                self.app.push_screen(PushScreen())
+            if self.sync_app.exported:
+                self.sync_app.push_screen(PushScreen())
             else:
                 self.notify(
                     "Nothing to push — slicer folders match sync folder",
                     severity="information")
         elif oid == "pull":
-            self.app.push_screen(PullScreen())
+            self.sync_app.push_screen(PullScreen())
         elif oid == "full_sync":
-            if self.app.exported:
-                self.app.push_screen(PushScreen(then_pull=True))
+            if self.sync_app.exported:
+                self.sync_app.push_screen(PushScreen(then_pull=True))
             else:
                 # Nothing to push, go directly to pull
-                self.app.push_screen(PullScreen())
+                self.sync_app.push_screen(PullScreen())
         elif oid == "pick":
-            self.app.push_screen(PickVersionScreen())
+            self.sync_app.push_screen(PickVersionScreen())
 
     def action_quit_app(self) -> None:
-        self.app.exit(0)
+        self.sync_app.exit(0)
 
 
 # ── Push Screen ─────────────────────────────────────────────────────────────
 
 
-class PushScreen(Screen):
+class PushScreen(SyncScreen):
     """Select files to push, then execute push in a worker."""
 
     BINDINGS = [
@@ -338,6 +432,7 @@ class PushScreen(Screen):
         Binding("n", "select_none", "None"),
         Binding("i", "invert", "Invert"),
         Binding("s", "range_select", "Range"),
+        Binding("d", "show_diff", "Diff"),
         Binding("enter", "confirm", "Confirm", priority=True),
         Binding("escape", "go_back", "Back"),
     ]
@@ -355,7 +450,7 @@ class PushScreen(Screen):
 
         # Use integer indices as values (must be hashable)
         selections: list[tuple[Text, int, bool]] = []
-        for i, (src, dst) in enumerate(self.app.exported):
+        for i, (src, dst) in enumerate(self.sync_app.exported):
             selections.append((self._make_label(src, dst), i, True))
 
         yield SelectionList[int](*selections, id="file-list")
@@ -365,7 +460,7 @@ class PushScreen(Screen):
     # ── helpers ──────────────────────────────────────────────────────────
 
     def _make_label(self, src: Path | None, dst: Path) -> Text:
-        cfg = self.app.cfg
+        cfg = self.sync_app.cfg
         try:
             rel = dst.relative_to(cfg.repo_dir / REPO_PROFILES_DIR)
             slicer_key = rel.parts[0]
@@ -433,6 +528,44 @@ class PushScreen(Screen):
                 f"Selected items {lo + 1}–{hi + 1}",
                 severity="information")
 
+    def action_show_diff(self) -> None:
+        """Show diff for the highlighted file (exported vs last commit)."""
+        sl = self.query_one(SelectionList)
+        idx = sl.highlighted
+        if idx is None:
+            return
+        src, dst = self.sync_app.exported[idx]
+
+        if src is None:
+            self.notify("File was deleted — no diff to show",
+                        severity="information")
+            return
+
+        # New content: the exported file already on disk at dst
+        try:
+            new_text = dst.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            new_text = ""
+
+        # Old content: what git has at HEAD for this path
+        try:
+            rel = dst.relative_to(self.sync_app.cfg.repo_dir)
+            result = run(
+                ["git", "show", f"HEAD:{rel}"],
+                cwd=self.sync_app.cfg.repo_dir, check=False,
+            )
+            old_text = result.stdout if result.returncode == 0 else ""
+        except (ValueError, Exception):
+            old_text = ""
+
+        self.sync_app.push_screen(DiffScreen(
+            filename=dst.name,
+            old_text=old_text,
+            new_text=new_text,
+            old_label="server (last saved)",
+            new_label="local (your slicer)",
+        ))
+
     def action_confirm(self) -> None:
         selected = list(self.query_one(SelectionList).selected)
         if not selected:
@@ -441,14 +574,14 @@ class PushScreen(Screen):
         self._execute_push(selected)
 
     def action_go_back(self) -> None:
-        self.app.pop_screen()
+        self.sync_app.pop_screen()
 
     # ── worker ───────────────────────────────────────────────────────────
 
     @work(thread=True, exclusive=True)
     def _execute_push(self, selected_indices: list[int]) -> None:
-        cfg = self.app.cfg
-        exported = self.app.exported
+        cfg = self.sync_app.cfg
+        exported = self.sync_app.exported
         selected_files = [exported[i] for i in selected_indices]
 
         # Revert and re-export if only a subset was selected
@@ -477,10 +610,10 @@ class PushScreen(Screen):
                     needs_push = True
 
         if not needs_push:
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify, "✓ Already synced to server",
                 severity="information")
-            self.app.call_from_thread(self._after_push, True)
+            self.sync_app.call_from_thread(self._after_push, True)
             return
 
         # Pull-rebase before pushing
@@ -490,15 +623,15 @@ class PushScreen(Screen):
             if git_has_conflicts(cfg.repo_dir):
                 run(["git", "rebase", "--abort"],
                     cwd=cfg.repo_dir, check=False)
-                self.app.call_from_thread(
+                self.sync_app.call_from_thread(
                     self.notify,
                     "Conflicts detected — resolve manually and retry",
                     severity="error", timeout=10)
             else:
-                self.app.call_from_thread(
+                self.sync_app.call_from_thread(
                     self.notify, "Error syncing with server",
                     severity="error", timeout=10)
-            self.app.call_from_thread(self._after_push, False)
+            self.sync_app.call_from_thread(self._after_push, False)
             return
 
         # Push
@@ -522,28 +655,30 @@ class PushScreen(Screen):
                 git_push(cfg.repo_dir)
 
             n = len(selected_indices)
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify, f"✓ Pushed {n} file(s) to server",
                 severity="information")
-            self.app.call_from_thread(self._after_push, True)
+            self.sync_app.call_from_thread(self._after_push, True)
         except subprocess.CalledProcessError:
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify, "Push failed", severity="error", timeout=10)
-            self.app.call_from_thread(self._after_push, False)
+            self.sync_app.call_from_thread(self._after_push, False)
 
     def _after_push(self, success: bool) -> None:
         if success:
-            self.app.exported = []
-            self.app.refresh_status()
-        self.app.pop_screen()
+            # Re-export to detect any remaining unpushed changes
+            self.sync_app.exported = export_from_slicers_to_repo(
+                self.sync_app.cfg)
+            self.sync_app.refresh_status()
+        self.sync_app.pop_screen()
         if success and self.then_pull:
-            self.app.push_screen(PullScreen())
+            self.sync_app.push_screen(PullScreen())
 
 
 # ── Pull Screen ─────────────────────────────────────────────────────────────
 
 
-class PullScreen(Screen):
+class PullScreen(SyncScreen):
     """Load server profiles, let user select, and import."""
 
     BINDINGS = [
@@ -551,6 +686,7 @@ class PullScreen(Screen):
         Binding("n", "select_none", "None"),
         Binding("i", "invert", "Invert"),
         Binding("s", "range_select", "Range"),
+        Binding("d", "show_diff", "Diff"),
         Binding("enter", "confirm", "Confirm", priority=True),
         Binding("escape", "go_back", "Back"),
     ]
@@ -574,7 +710,7 @@ class PullScreen(Screen):
 
     @work(thread=True)
     def _load_profiles(self) -> None:
-        cfg = self.app.cfg
+        cfg = self.sync_app.cfg
 
         # Ensure on main branch
         try:
@@ -598,15 +734,15 @@ class PullScreen(Screen):
             if git_has_conflicts(cfg.repo_dir):
                 run(["git", "rebase", "--abort"],
                     cwd=cfg.repo_dir, check=False)
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify,
                 "Error downloading from server",
                 severity="error", timeout=10)
-            self.app.call_from_thread(self.app.pop_screen)
+            self.sync_app.call_from_thread(self.sync_app.pop_screen)
             return
 
         profiles = collect_server_profiles(cfg)
-        self.app.call_from_thread(self._display_profiles, profiles)
+        self.sync_app.call_from_thread(self._display_profiles, profiles)
 
     def _display_profiles(self, profiles: list[dict]) -> None:
         self._profiles = profiles
@@ -620,7 +756,7 @@ class PullScreen(Screen):
         if not profiles:
             self.notify(
                 "No profiles found on server", severity="information")
-            self.app.pop_screen()
+            self.sync_app.pop_screen()
             return
 
         # Build selections — use integer index as value (hashable)
@@ -712,6 +848,44 @@ class PullScreen(Screen):
                 f"Selected items {lo + 1}–{hi + 1}",
                 severity="information")
 
+    def action_show_diff(self) -> None:
+        """Show diff for the highlighted profile (server vs local slicer)."""
+        try:
+            sl = self.query_one(SelectionList)
+        except Exception:
+            return
+        idx = sl.highlighted
+        if idx is None:
+            return
+        p = self._profiles[idx]
+
+        # Server version (in repo)
+        repo_path: Path = p["repo_path"]
+        try:
+            new_text = repo_path.read_text(
+                encoding="utf-8", errors="replace")
+        except OSError:
+            new_text = ""
+
+        # Local slicer version
+        local_path: Path | None = p.get("local_path")
+        if local_path and local_path.exists():
+            try:
+                old_text = local_path.read_text(
+                    encoding="utf-8", errors="replace")
+            except OSError:
+                old_text = ""
+        else:
+            old_text = ""
+
+        self.sync_app.push_screen(DiffScreen(
+            filename=p["filename"],
+            old_text=old_text,
+            new_text=new_text,
+            old_label="local (your slicer)",
+            new_label="server (latest)",
+        ))
+
     def action_confirm(self) -> None:
         try:
             selected = list(self.query_one(SelectionList).selected)
@@ -723,33 +897,37 @@ class PullScreen(Screen):
         self._execute_pull(selected)
 
     def action_go_back(self) -> None:
-        self.app.pop_screen()
+        self.sync_app.pop_screen()
 
     @work(thread=True, exclusive=True)
     def _execute_pull(self, selected_indices: list[int]) -> None:
         selected = [self._profiles[i] for i in selected_indices]
-        imported = import_selected_profiles(self.app.cfg, selected)
+        imported = import_selected_profiles(self.sync_app.cfg, selected)
 
         n = len(imported)
         if n > 0:
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify,
                 f"✓ Downloaded {n} file(s) to slicer folders",
                 severity="information")
         else:
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify,
                 "All selected files are already up to date",
                 severity="information")
+
+        # Re-export to recalculate remaining differences
+        self.sync_app.exported = export_from_slicers_to_repo(self.sync_app.cfg)
+
         # Refresh main screen status after pull
-        self.app.call_from_thread(self.app.refresh_status)
-        self.app.call_from_thread(self.app.pop_screen)
+        self.sync_app.call_from_thread(self.sync_app.refresh_status)
+        self.sync_app.call_from_thread(self.sync_app.pop_screen)
 
 
 # ── Pick Version Screen ─────────────────────────────────────────────────────
 
 
-class PickVersionScreen(Screen):
+class PickVersionScreen(SyncScreen):
     """Select and restore a saved version."""
 
     BINDINGS = [
@@ -773,7 +951,7 @@ class PickVersionScreen(Screen):
     @work(thread=True)
     def _load_versions(self) -> None:
         all_commits = git_list_commits(
-            self.app.cfg.repo_dir, limit=20)
+            self.sync_app.cfg.repo_dir, limit=20)
 
         commits_data: list[dict] = []
         for commit_line in all_commits:
@@ -796,7 +974,7 @@ class PickVersionScreen(Screen):
                 "subject": subject,
             })
 
-        self.app.call_from_thread(
+        self.sync_app.call_from_thread(
             self._display_versions, commits_data)
 
     def _display_versions(self, commits: list[dict]) -> None:
@@ -810,7 +988,7 @@ class PickVersionScreen(Screen):
         if not commits:
             self.notify(
                 "No saved versions found", severity="information")
-            self.app.pop_screen()
+            self.sync_app.pop_screen()
             return
 
         options = [
@@ -827,12 +1005,14 @@ class PickVersionScreen(Screen):
     def on_option_list_option_selected(
         self, event: OptionList.OptionSelected,
     ) -> None:
+        if event.option_id is None:
+            return
         idx = int(event.option_id)
         self._restore_version(self._commits[idx])
 
     @work(thread=True, exclusive=True)
     def _restore_version(self, commit: dict) -> None:
-        cfg = self.app.cfg
+        cfg = self.sync_app.cfg
         git_checkout_commit(cfg.repo_dir, commit["hash"])
         imported = import_from_repo_to_slicers(cfg)
 
@@ -847,17 +1027,17 @@ class PickVersionScreen(Screen):
 
         n = len(imported)
         if n > 0:
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify,
                 f"✓ Restored {n} file(s) from {commit['time']}",
                 severity="information")
         else:
-            self.app.call_from_thread(
+            self.sync_app.call_from_thread(
                 self.notify,
                 f"Version from {commit['time']}"
                 " matches current files",
                 severity="information")
-        self.app.call_from_thread(self.app.pop_screen)
+        self.sync_app.call_from_thread(self.sync_app.pop_screen)
 
     def action_go_back(self) -> None:
-        self.app.pop_screen()
+        self.sync_app.pop_screen()
