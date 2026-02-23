@@ -17,6 +17,7 @@ If you use multiple computers, you've probably experienced this:
 ## Key Features
 
 - 🔄 **True Bidirectional Sync** - additions, modifications, AND deletions propagate
+- 🖥️ **Interactive TUI** - full-screen terminal UI with file selection (powered by [Textual](https://textual.textualize.io/))
 - 🎨 **Organized Display** - files grouped by slicer and type (filament/process/machine)
 - 💻 **Cross-platform** - macOS, Windows, Linux
 - 🔍 **Auto-detection** of slicer profile directories
@@ -65,6 +66,7 @@ All slicers support automatic detection of numeric user ID subdirectories.
 ## Requirements
 
 - Python 3.7+
+- [Textual](https://textual.textualize.io/) (installed via `requirements.txt`)
 - Git CLI installed
   - **macOS**: Xcode Command Line Tools or Homebrew git
   - **Windows**: [Git for Windows](https://git-scm.com/download/win)
@@ -141,16 +143,30 @@ This will:
 python profilesync.py sync
 ```
 
-You'll see:
-- Current sync status
+You'll see a full-screen interactive TUI showing:
+- Current sync status (local folder, remote, last sync time)
 - Files grouped by slicer and type (filament/process/machine)
 - Sync folder status (uncommitted changes, ahead/behind server)
 
-Interactive options:
-1. **Push** - Save your local profiles to the server
-2. **Pull** - Download latest profiles from server to your slicer
-3. **Pick version** - Restore a specific saved version
-4. **Both** - Push then pull (recommended)
+Menu options:
+1. **Push** - Save your local profiles to the server (with file selection)
+2. **Pull** - Download latest profiles from server (with file selection)
+3. **Full Sync** - Push then pull (recommended)
+4. **Pick Version** - Restore a specific saved version
+
+### File Selection Keybindings
+
+When selecting files to push or pull:
+
+| Key | Action |
+|-----|--------|
+| **Space** | Toggle highlighted item |
+| **a** | Select all |
+| **n** | Deselect all |
+| **i** | Invert selection |
+| **s** | Range select — press once to set anchor, move cursor, press again to select range |
+| **Enter** | Confirm selection |
+| **Esc** | Go back |
 
 ### 4. On Your Other Computer
 
@@ -198,7 +214,9 @@ Shows your current settings in JSON format.
 
 Lists the last 20 saved versions with timestamps. Select one to restore to your slicer.
 
-### Non-Interactive Sync
+### Non-Interactive Sync (CLI Mode)
+
+When using `--action`, ProfileSync runs in non-interactive CLI mode (no TUI):
 
 ```bash
 ./profilesync.py sync --action both
@@ -344,6 +362,7 @@ slicer_profile_sync_tool/
 │   ├── git.py             # Git operations
 │   ├── slicers.py         # Slicer detection
 │   ├── sync.py            # File sync operations
+│   ├── tui.py             # Textual TUI (interactive sync screens)
 │   └── ui.py              # UI helpers (colors, prompts)
 ├── config.json            # User config (gitignored)
 ├── data/                  # Cloned repos (gitignored)
@@ -375,7 +394,6 @@ Contributions welcome! Please:
 5. Submit a pull request
 
 ## Future Enhancements
-- Selective sync (filament-only, etc.)
 - Packaging as standalone executable
 
 ## License
