@@ -18,13 +18,14 @@ If you use multiple computers, you've probably experienced this:
 
 - 🔄 **True Bidirectional Sync** - additions, modifications, AND deletions propagate
 - 🖥️ **Interactive TUI** - full-screen terminal UI with file selection (powered by [Textual](https://textual.textualize.io/))
+- 🔍 **Side-by-Side Diff Viewer** - compare local vs server versions with line numbers and change highlighting
 - 🎨 **Organized Display** - files grouped by slicer and type (filament/process/machine)
 - 💻 **Cross-platform** - macOS, Windows, Linux
 - 🔍 **Auto-detection** of slicer profile directories
 - 🌐 **Any Git Server** - GitHub, GitLab, Gitea, self-hosted, etc.
-- 💬 **User-friendly language** - no git jargon, clear explanations
+- 💬 **User-friendly language** - no git jargon, just "local" and "server"
 - ⚔️ **Interactive conflict resolution** - guided editor-based conflict fixing
-- 📊 **Smart status display** - shows sync folder vs slicer vs server status
+- 📊 **Smart status display** - shows local vs server differences by slicer and type
 - ⚡ **Hash-based deduplication** - only syncs what actually changed
 - 📅 **Version history** - restore any previous profile version
 - 🎯 **Multi-slicer support** - Orca Slicer, Bambu Studio, Snapmaker Orca, Creality Print, Elegoo Slicer
@@ -144,9 +145,9 @@ python profilesync.py sync
 ```
 
 You'll see a full-screen interactive TUI showing:
-- Current sync status (local folder, remote, last sync time)
+- Current sync status (local vs server, last sync time)
 - Files grouped by slicer and type (filament/process/machine)
-- Sync folder status (uncommitted changes, ahead/behind server)
+- Per-type breakdown of changed files
 
 Menu options:
 1. **Push** - Save your local profiles to the server (with file selection)
@@ -165,6 +166,7 @@ When selecting files to push or pull:
 | **n** | Deselect all |
 | **i** | Invert selection |
 | **s** | Range select — press once to set anchor, move cursor, press again to select range |
+| **d** | Show side-by-side diff for highlighted file |
 | **Enter** | Confirm selection |
 | **Esc** | Go back |
 
@@ -243,7 +245,7 @@ Config is stored in `./config.json` (gitignored):
 
 ## Sync Status Display
 
-ProfileSync shows a comprehensive status:
+ProfileSync shows a clear status using "local" and "server" terminology — no git jargon:
 
 ```
 Sync status:
@@ -251,36 +253,34 @@ Sync status:
   Remote server: git@github.com:user/slicer-profiles.git
   Last sync:     January 31, 2026 at 02:45 PM
 
-  Orca Slicer (36 files):
-    Filament: 19
-    Process: 12
-    Machine: 5
+  Orca Slicer (36 files)
+    Filament: 19  Process: 12  Machine: 5
 
-  Bambu Studio (27 files):
-    Filament: 15
-    Process: 8
-    Machine: 4
+  Bambu Studio (27 files)
+    Filament: 15  Process: 8  Machine: 4
 
-✓ Your slicer folders match the sync folder
-✓ Sync folder matches server
+  ✓ Local profiles match server
+  ✓ Everything is synced
 ```
 
 If there are changes:
 ```
-Found 3 changed file(s) in your slicer folders:
-
-  Orca Slicer (3 files):
-    Filament (2 added/modified, 1 deleted):
-      • PLA Basic.json
-      • PETG Strong.json
-      - Old Filament.json (deleted)
-    Process (1):
-      • 0.2mm Standard @Bambu Lab P1S 0.4 nozzle.json
-
-* Sync folder has changes not yet saved to server
-  3 changed file(s):
-    ...
+  ● 5 file(s) differ from server
+    Orca Slicer: 2 Filament, 1 Process
+    Bambu Studio: 1 Filament, 1 Process
+  ↓ Server has 2 newer update(s)
 ```
+
+## Side-by-Side Diff Viewer
+
+Press **d** on any highlighted file in the push or pull screen to see a side-by-side diff:
+
+- **Left pane**: local version
+- **Right pane**: server version
+- **Line numbers** shown for both sides
+- **Red** lines = removed, **Green** lines = added
+- Changed line ranges shown in the title bar
+- Scroll both panes together
 
 ## Conflict Resolution
 
