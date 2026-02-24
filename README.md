@@ -14,6 +14,16 @@ If you use multiple computers, you've probably experienced this:
 
 **ProfileSync** solves this by automatically syncing your slicer profiles across all your machines using Git (GitHub, GitLab, Gitea, or any Git server).
 
+## Screenshots
+
+| Main Screen | Push Screen |
+|:-----------:|:-----------:|
+| ![Main Screen](screenshots/main-screen.png) | ![Push Screen](screenshots/push-screen.png) |
+
+| Side-by-Side Diff | Pull Screen |
+|:------------------:|:-----------:|
+| ![Diff Screen](screenshots/diff-screen.png) | ![Pull Screen](screenshots/pull-screen.png) |
+
 ## Key Features
 
 - 🔄 **True Bidirectional Sync** - additions, modifications, AND deletions propagate
