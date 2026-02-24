@@ -250,35 +250,27 @@ class SyncApp(App[int]):
         margin: 0 1;
     }
 
+    #diff-content {
+        height: auto;
+    }
+
     .diff-pane {
         width: 1fr;
-        overflow-y: auto;
+        height: auto;
         padding: 0 1;
-        scrollbar-size: 1 1;
     }
 
-    #diff-pane-right {
-        scrollbar-size: 1 1;
-    }
-
-    #diff-pane-left {
-        scrollbar-size: 0 0;
+    .diff-header-row {
+        height: auto;
+        margin: 0 1;
     }
 
     .diff-header {
         text-style: bold;
-        padding: 0 1;
+        width: 1fr;
+        padding: 0 2;
         color: $text;
         background: $surface;
-    }
-
-    .diff-line-col {
-        width: 5;
-        color: $text-muted;
-    }
-
-    .diff-text-col {
-        width: 1fr;
     }
     """
 
@@ -333,7 +325,6 @@ class DiffScreen(SyncScreen):
         self._right_text = right_text
         self._left_label = left_label
         self._right_label = right_label
-        self._syncing_scroll = False
 
     def compose(self) -> ComposeResult:
         left_content, right_content, changed_summary = (
@@ -347,41 +338,15 @@ class DiffScreen(SyncScreen):
             title.append(f"  {changed_summary}", style="yellow")
         yield Static(title, id="diff-title")
 
-        with Horizontal(id="diff-container"):
-            with ScrollableContainer(classes="diff-pane", id="diff-pane-left"):
-                yield Static(
-                    self._left_label, classes="diff-header")
-                yield Static(left_content, id="diff-left")
-            with ScrollableContainer(
-                    classes="diff-pane", id="diff-pane-right"):
-                yield Static(
-                    self._right_label, classes="diff-header")
-                yield Static(right_content, id="diff-right")
+        with Horizontal(classes="diff-header-row"):
+            yield Static(self._left_label, classes="diff-header")
+            yield Static(self._right_label, classes="diff-header")
+
+        with ScrollableContainer(id="diff-container"):
+            with Horizontal(id="diff-content"):
+                yield Static(left_content, classes="diff-pane")
+                yield Static(right_content, classes="diff-pane")
         yield Footer()
-
-    def on_mount(self) -> None:
-        """Wire up synchronized scrolling between the two panes."""
-        left_pane = self.query_one("#diff-pane-left", ScrollableContainer)
-        right_pane = self.query_one("#diff-pane-right", ScrollableContainer)
-
-        def sync_left_to_right() -> None:
-            if self._syncing_scroll:
-                return
-            self._syncing_scroll = True
-            right_pane.scroll_to(
-                y=left_pane.scroll_y, animate=False)
-            self._syncing_scroll = False
-
-        def sync_right_to_left() -> None:
-            if self._syncing_scroll:
-                return
-            self._syncing_scroll = True
-            left_pane.scroll_to(
-                y=right_pane.scroll_y, animate=False)
-            self._syncing_scroll = False
-
-        self.watch(left_pane, "scroll_y", lambda *_: sync_left_to_right())
-        self.watch(right_pane, "scroll_y", lambda *_: sync_right_to_left())
 
     def _build_side_by_side(self) -> tuple[Text, Text, str]:
         """Build aligned left/right Rich Text panels with line numbers.
