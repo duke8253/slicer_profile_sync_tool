@@ -54,6 +54,7 @@ from .sync import (
     export_from_slicers_to_repo,
     group_by_slicer_and_type,
     import_from_repo_to_slicers,
+    rebuild_exported_from_git,
     SLICER_DISPLAY_NAMES,
 )
 from .ui import (
@@ -529,7 +530,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     # 2) Export current slicer state to see what changed
     exported = export_from_slicers_to_repo(cfg)
-
+    # If nothing new was exported, check for uncommitted changes from a previous run
+    if not exported:
+        exported = rebuild_exported_from_git(cfg)
     # ─── Interactive TUI mode ───────────────────────────────────────────
     if not args.action:
         from .tui import SyncApp, build_status_text

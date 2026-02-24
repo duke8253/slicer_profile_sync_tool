@@ -77,6 +77,68 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
     return copied
 
 
+def rebuild_exported_from_git(cfg: Config) -> list[tuple[Path, Path]]:
+    """
+    Reconstruct the exported (src, dst) list from uncommitted git changes.
+
+    When export_from_slicers_to_repo already copied files in a previous run
+    but they were never pushed, ``exported`` will be empty even though the repo
+    has uncommitted changes. This function reads ``git status`` and maps the
+    changed repo files back to their slicer source paths.
+    """
+    from .git import git_status_porcelain
+
+    status = git_status_porcelain(cfg.repo_dir)
+    if not status.strip():
+        return []
+
+    result: list[tuple[Path, Path]] = []
+    for line in status.strip().splitlines():
+        # porcelain format: "XY path" (first 3 chars are status + space)
+        if len(line) < 4:
+            continue
+        status_code = line[:2]
+        rel_path = Path(line[3:].strip().strip('"'))
+        dst = cfg.repo_dir / rel_path
+
+        if not str(rel_path).startswith(str(REPO_PROFILES_DIR)):
+            continue
+
+        # Deleted from repo
+        if "D" in status_code:
+            result.append((None, dst))  # type: ignore
+            continue
+
+        # Map repo path back to slicer source
+        # repo structure: profiles/<slicer_key>/<type>/<file>.json
+        try:
+            profile_rel = rel_path.relative_to(REPO_PROFILES_DIR)
+            parts = profile_rel.parts
+            if len(parts) < 2:
+                continue
+            slicer_key = parts[0]
+            sub_rel = Path(*parts[1:])  # type/file.json
+        except (ValueError, IndexError):
+            continue
+
+        # Find the slicer source file
+        dirs = [Path(p) for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+        src = None
+        for d in dirs:
+            candidate = d / sub_rel
+            if candidate.exists():
+                src = candidate
+                break
+
+        if src is not None:
+            result.append((src, dst))
+        elif dst.exists():
+            # File exists in repo but not in slicer (shouldn't happen often)
+            result.append((dst, dst))
+
+    return result
+
+
 def import_from_repo_to_slicers(cfg: Config) -> list[tuple[Path, Path]]:
     """
     Copy JSON files from repo/profiles/<slicer>/ -> slicer profile dirs (into the first configured dir).

@@ -25,6 +25,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal, ScrollableContainer
 from textual.screen import Screen
 from textual.widgets import Footer, Header, OptionList, SelectionList, Static
 from textual.widgets.option_list import Option
@@ -48,8 +49,10 @@ from .sync import (
     collect_server_profiles,
     export_from_slicers_to_repo,
     export_selected_to_repo,
+    group_by_slicer_and_type,
     import_from_repo_to_slicers,
     import_selected_profiles,
+    rebuild_exported_from_git,
     SLICER_DISPLAY_NAMES,
 )
 
@@ -119,29 +122,32 @@ def build_status_text(
 
     text.append("\n")
 
-    # Changes detected
+    # Changes detected (local slicer files vs what's on the server)
     if exported:
-        additions = sum(1 for src, _ in exported if src is not None)
-        deletions = sum(1 for src, _ in exported if src is None)
-        parts: list[str] = []
-        if additions:
-            parts.append(f"{additions} changed")
-        if deletions:
-            parts.append(f"{deletions} deleted")
+        total = len(exported)
         text.append(
-            f"  ● Found {' + '.join(parts)} file(s) in slicer folders\n",
+            f"  ● {total} file(s) differ from server\n",
             style="yellow",
         )
+        # Show breakdown by slicer and type
+        grouped = group_by_slicer_and_type(
+            exported, cfg, cfg.repo_dir, use_dst_for_type=True)
+        for slicer_key, types in grouped.items():
+            display = SLICER_DISPLAY_NAMES.get(
+                slicer_key, slicer_key.capitalize())
+            type_parts = [
+                f"{len(files)} {ptype}"
+                for ptype, files in sorted(types.items())
+            ]
+            text.append(f"    {display}: ", style="bold")
+            text.append(", ".join(type_parts) + "\n")
     else:
         text.append(
-            "  ✓ Your slicer folders match the sync folder\n",
+            "  ✓ Local profiles match server\n",
             style="green",
         )
 
-    # Sync status vs server
-    git_status = git_status_porcelain(cfg.repo_dir)
-    has_unsaved = bool(git_status.strip())
-
+    # Server sync status
     if remote_has_commits:
         local_head = run(
             ["git", "rev-parse", "HEAD"],
@@ -152,13 +158,10 @@ def build_status_text(
             cwd=cfg.repo_dir, check=False,
         ).stdout.strip()
 
-        if has_unsaved:
+        if local_head == remote_head and not exported:
             text.append(
-                "  ● Sync folder has unsaved changes\n", style="yellow")
-        elif local_head == remote_head:
-            text.append(
-                "  ✓ Sync folder matches server\n", style="green")
-        else:
+                "  ✓ Everything is synced\n", style="green")
+        elif local_head != remote_head:
             result = run(
                 ["git", "rev-list", "--left-right", "--count",
                  "HEAD...origin/main"],
@@ -169,21 +172,14 @@ def build_status_text(
                 ahead, behind = int(ahead_s), int(behind_s)
                 if ahead > 0 and behind > 0:
                     text.append(
-                        "  ⚠ Sync folder differs from server\n",
+                        "  ⚠ Local and server have diverged\n",
                         style="yellow")
-                elif ahead > 0:
-                    text.append(
-                        f"  ↑ {ahead} save(s) not yet on server\n",
-                        style="cyan")
                 elif behind > 0:
                     text.append(
-                        f"  ↓ {behind} newer save(s) on server\n",
+                        f"  ↓ Server has {behind} newer update(s)\n",
                         style="cyan")
     else:
-        if has_unsaved:
-            text.append(
-                "  ● Sync folder has unsaved changes\n", style="yellow")
-        else:
+        if not exported:
             text.append(
                 "  ℹ No profiles saved to server yet\n", style="dim")
 
@@ -249,11 +245,40 @@ class SyncApp(App[int]):
         padding: 1 2;
     }
 
-    #diff-view {
+    #diff-container {
         height: 1fr;
-        margin: 0 2;
+        margin: 0 1;
+    }
+
+    .diff-pane {
+        width: 1fr;
         overflow-y: auto;
         padding: 0 1;
+        scrollbar-size: 1 1;
+    }
+
+    #diff-pane-right {
+        scrollbar-size: 1 1;
+    }
+
+    #diff-pane-left {
+        scrollbar-size: 0 0;
+    }
+
+    .diff-header {
+        text-style: bold;
+        padding: 0 1;
+        color: $text;
+        background: $surface;
+    }
+
+    .diff-line-col {
+        width: 5;
+        color: $text-muted;
+    }
+
+    .diff-text-col {
+        width: 1fr;
     }
     """
 
@@ -287,7 +312,7 @@ class SyncApp(App[int]):
 
 
 class DiffScreen(SyncScreen):
-    """Display a unified diff between two file versions."""
+    """Display a side-by-side diff between two file versions."""
 
     BINDINGS = [
         Binding("escape", "go_back", "Back"),
@@ -297,57 +322,154 @@ class DiffScreen(SyncScreen):
     def __init__(
         self,
         filename: str,
-        old_text: str,
-        new_text: str,
-        old_label: str = "server",
-        new_label: str = "local",
+        left_text: str,
+        right_text: str,
+        left_label: str = "local",
+        right_label: str = "server",
     ) -> None:
         super().__init__()
         self._filename = filename
-        self._old_text = old_text
-        self._new_text = new_text
-        self._old_label = old_label
-        self._new_label = new_label
+        self._left_text = left_text
+        self._right_text = right_text
+        self._left_label = left_label
+        self._right_label = right_label
+        self._syncing_scroll = False
 
     def compose(self) -> ComposeResult:
+        left_content, right_content, changed_summary = (
+            self._build_side_by_side())
+
         title = Text()
         title.append(f"  Diff: {self._filename}", style="bold")
         title.append(
-            f"  ({self._old_label} → {self._new_label})", style="dim")
+            f"  ({self._left_label} → {self._right_label})", style="dim")
+        if changed_summary:
+            title.append(f"  {changed_summary}", style="yellow")
         yield Static(title, id="diff-title")
-        yield Static(self._build_diff(), id="diff-view")
+
+        with Horizontal(id="diff-container"):
+            with ScrollableContainer(classes="diff-pane", id="diff-pane-left"):
+                yield Static(
+                    self._left_label, classes="diff-header")
+                yield Static(left_content, id="diff-left")
+            with ScrollableContainer(
+                    classes="diff-pane", id="diff-pane-right"):
+                yield Static(
+                    self._right_label, classes="diff-header")
+                yield Static(right_content, id="diff-right")
         yield Footer()
 
-    def _build_diff(self) -> Text:
-        old_lines = self._old_text.splitlines(keepends=True)
-        new_lines = self._new_text.splitlines(keepends=True)
+    def on_mount(self) -> None:
+        """Wire up synchronized scrolling between the two panes."""
+        left_pane = self.query_one("#diff-pane-left", ScrollableContainer)
+        right_pane = self.query_one("#diff-pane-right", ScrollableContainer)
 
-        diff_lines = list(difflib.unified_diff(
-            old_lines,
-            new_lines,
-            fromfile=self._old_label,
-            tofile=self._new_label,
-        ))
+        def sync_left_to_right() -> None:
+            if self._syncing_scroll:
+                return
+            self._syncing_scroll = True
+            right_pane.scroll_to(
+                y=left_pane.scroll_y, animate=False)
+            self._syncing_scroll = False
 
-        if not diff_lines:
-            result = Text()
-            result.append("  Files are identical", style="dim italic")
-            return result
+        def sync_right_to_left() -> None:
+            if self._syncing_scroll:
+                return
+            self._syncing_scroll = True
+            left_pane.scroll_to(
+                y=right_pane.scroll_y, animate=False)
+            self._syncing_scroll = False
 
-        result = Text()
-        for line in diff_lines:
-            stripped = line.rstrip("\n")
-            if line.startswith("+++") or line.startswith("---"):
-                result.append(stripped + "\n", style="bold")
-            elif line.startswith("@@"):
-                result.append(stripped + "\n", style="cyan")
-            elif line.startswith("+"):
-                result.append(stripped + "\n", style="green")
-            elif line.startswith("-"):
-                result.append(stripped + "\n", style="red")
+        self.watch(left_pane, "scroll_y", lambda *_: sync_left_to_right())
+        self.watch(right_pane, "scroll_y", lambda *_: sync_right_to_left())
+
+    def _build_side_by_side(self) -> tuple[Text, Text, str]:
+        """Build aligned left/right Rich Text panels with line numbers.
+
+        Returns (left_text, right_text, changed_lines_summary).
+        """
+        left_lines = self._left_text.splitlines()
+        right_lines = self._right_text.splitlines()
+
+        if left_lines == right_lines:
+            msg = Text("  Files are identical", style="dim italic")
+            return msg, msg.copy(), ""
+
+        left = Text()
+        right = Text()
+        changed_line_nums: list[int] = []
+        row = 0  # visual row counter for the summary
+        left_num = 0
+        right_num = 0
+
+        sm = difflib.SequenceMatcher(None, left_lines, right_lines)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                for k in range(i2 - i1):
+                    left_num += 1
+                    right_num += 1
+                    row += 1
+                    left.append(f"{left_num:4d} ", style="dim")
+                    left.append(f"{left_lines[i1 + k]}\n")
+                    right.append(f"{right_num:4d} ", style="dim")
+                    right.append(f"{right_lines[j1 + k]}\n")
+            elif tag == "replace":
+                max_len = max(i2 - i1, j2 - j1)
+                for k in range(max_len):
+                    row += 1
+                    if i1 + k < i2:
+                        left_num += 1
+                        changed_line_nums.append(left_num)
+                        left.append(f"{left_num:4d} ", style="red")
+                        left.append(
+                            f"{left_lines[i1 + k]}\n", style="red")
+                    else:
+                        left.append("     \n", style="dim")
+                    if j1 + k < j2:
+                        right_num += 1
+                        right.append(f"{right_num:4d} ", style="green")
+                        right.append(
+                            f"{right_lines[j1 + k]}\n", style="green")
+                    else:
+                        right.append("     \n", style="dim")
+            elif tag == "delete":
+                for k in range(i2 - i1):
+                    left_num += 1
+                    row += 1
+                    changed_line_nums.append(left_num)
+                    left.append(f"{left_num:4d} ", style="red")
+                    left.append(
+                        f"{left_lines[i1 + k]}\n", style="red")
+                    right.append("     \n", style="dim")
+            elif tag == "insert":
+                for k in range(j2 - j1):
+                    right_num += 1
+                    row += 1
+                    left.append("     \n", style="dim")
+                    right.append(f"{right_num:4d} ", style="green")
+                    right.append(
+                        f"{right_lines[j1 + k]}\n", style="green")
+
+        summary = self._summarize_changed_lines(changed_line_nums)
+        return left, right, summary
+
+    @staticmethod
+    def _summarize_changed_lines(nums: list[int]) -> str:
+        """Collapse a list of line numbers into a compact range string."""
+        if not nums:
+            return ""
+        ranges: list[str] = []
+        start = nums[0]
+        end = nums[0]
+        for n in nums[1:]:
+            if n == end + 1:
+                end = n
             else:
-                result.append(stripped + "\n")
-        return result
+                ranges.append(
+                    str(start) if start == end else f"{start}-{end}")
+                start = end = n
+        ranges.append(str(start) if start == end else f"{start}-{end}")
+        return f"[lines {', '.join(ranges)}]"
 
     def action_go_back(self) -> None:
         self.sync_app.pop_screen()
@@ -404,7 +526,7 @@ class MainScreen(SyncScreen):
                 self.sync_app.push_screen(PushScreen())
             else:
                 self.notify(
-                    "Nothing to push — slicer folders match sync folder",
+                    "Nothing to push — local profiles match server",
                     severity="information")
         elif oid == "pull":
             self.sync_app.push_screen(PullScreen())
@@ -541,9 +663,9 @@ class PushScreen(SyncScreen):
                         severity="information")
             return
 
-        # New content: the exported file already on disk at dst
+        # New content: the local slicer file (what we want to push)
         try:
-            new_text = dst.read_text(encoding="utf-8", errors="replace")
+            new_text = src.read_text(encoding="utf-8", errors="replace")
         except OSError:
             new_text = ""
 
@@ -560,10 +682,10 @@ class PushScreen(SyncScreen):
 
         self.sync_app.push_screen(DiffScreen(
             filename=dst.name,
-            old_text=old_text,
-            new_text=new_text,
-            old_label="server (last saved)",
-            new_label="local (your slicer)",
+            left_text=new_text,
+            right_text=old_text,
+            left_label="local",
+            right_label="server",
         ))
 
     def action_confirm(self) -> None:
@@ -667,8 +789,10 @@ class PushScreen(SyncScreen):
     def _after_push(self, success: bool) -> None:
         if success:
             # Re-export to detect any remaining unpushed changes
-            self.sync_app.exported = export_from_slicers_to_repo(
-                self.sync_app.cfg)
+            exported = export_from_slicers_to_repo(self.sync_app.cfg)
+            if not exported:
+                exported = rebuild_exported_from_git(self.sync_app.cfg)
+            self.sync_app.exported = exported
             self.sync_app.refresh_status()
         self.sync_app.pop_screen()
         if success and self.then_pull:
@@ -880,10 +1004,10 @@ class PullScreen(SyncScreen):
 
         self.sync_app.push_screen(DiffScreen(
             filename=p["filename"],
-            old_text=old_text,
-            new_text=new_text,
-            old_label="local (your slicer)",
-            new_label="server (latest)",
+            left_text=old_text,
+            right_text=new_text,
+            left_label="local",
+            right_label="server",
         ))
 
     def action_confirm(self) -> None:
@@ -908,7 +1032,7 @@ class PullScreen(SyncScreen):
         if n > 0:
             self.sync_app.call_from_thread(
                 self.notify,
-                f"✓ Downloaded {n} file(s) to slicer folders",
+                f"✓ Downloaded {n} file(s) to local",
                 severity="information")
         else:
             self.sync_app.call_from_thread(
@@ -917,7 +1041,10 @@ class PullScreen(SyncScreen):
                 severity="information")
 
         # Re-export to recalculate remaining differences
-        self.sync_app.exported = export_from_slicers_to_repo(self.sync_app.cfg)
+        exported = export_from_slicers_to_repo(self.sync_app.cfg)
+        if not exported:
+            exported = rebuild_exported_from_git(self.sync_app.cfg)
+        self.sync_app.exported = exported
 
         # Refresh main screen status after pull
         self.sync_app.call_from_thread(self.sync_app.refresh_status)
