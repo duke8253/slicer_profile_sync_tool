@@ -309,7 +309,11 @@ class DiffScreen(SyncScreen):
     BINDINGS = [
         Binding("escape", "go_back", "Back"),
         Binding("q", "go_back", "Back", show=False),
+        Binding("f", "toggle_full", "Toggle full file"),
     ]
+
+    # Number of unchanged context lines to show around each change.
+    CONTEXT_LINES = 3
 
     def __init__(
         self,
@@ -325,10 +329,11 @@ class DiffScreen(SyncScreen):
         self._right_text = right_text
         self._left_label = left_label
         self._right_label = right_label
+        self._show_full = False
 
     def compose(self) -> ComposeResult:
         left_content, right_content, changed_summary = (
-            self._build_side_by_side())
+            self._build_diff())
 
         title = Text()
         title.append(f"  Diff: {self._filename}", style="bold")
@@ -336,6 +341,8 @@ class DiffScreen(SyncScreen):
             f"  ({self._left_label} → {self._right_label})", style="dim")
         if changed_summary:
             title.append(f"  {changed_summary}", style="yellow")
+        mode_label = "full" if self._show_full else "changes only"
+        title.append(f"  [{mode_label}]", style="dim italic")
         yield Static(title, id="diff-title")
 
         with Horizontal(classes="diff-header-row"):
@@ -348,32 +355,67 @@ class DiffScreen(SyncScreen):
                 yield Static(right_content, classes="diff-pane")
         yield Footer()
 
-    def _build_side_by_side(self) -> tuple[Text, Text, str]:
-        """Build aligned left/right Rich Text panels with line numbers.
+    def action_toggle_full(self) -> None:
+        """Toggle between context-only and full file diff."""
+        self._show_full = not self._show_full
+        left_content, right_content, changed_summary = (
+            self._build_diff())
 
-        Returns (left_text, right_text, changed_lines_summary).
-        """
-        left_lines = self._left_text.splitlines()
-        right_lines = self._right_text.splitlines()
+        # Update title
+        title = Text()
+        title.append(f"  Diff: {self._filename}", style="bold")
+        title.append(
+            f"  ({self._left_label} → {self._right_label})", style="dim")
+        if changed_summary:
+            title.append(f"  {changed_summary}", style="yellow")
+        mode_label = "full" if self._show_full else "changes only"
+        title.append(f"  [{mode_label}]", style="dim italic")
+        self.query_one("#diff-title", Static).update(title)
+
+        # Update diff panes
+        panes = self.query(".diff-pane")
+        panes[0].update(left_content)
+        panes[1].update(right_content)
+
+    def _build_diff(self) -> tuple[Text, Text, str]:
+        """Route to full or context-only diff builder."""
+        opcodes, left_lines, right_lines = self._compute_opcodes()
 
         if left_lines == right_lines:
             msg = Text("  Files are identical", style="dim italic")
             return msg, msg.copy(), ""
 
+        if self._show_full:
+            return self._render_full(opcodes, left_lines, right_lines)
+        return self._render_context(opcodes, left_lines, right_lines)
+
+    def _compute_opcodes(
+        self,
+    ) -> tuple[list[tuple[str, int, int, int, int]], list[str], list[str]]:
+        """Compute diff opcodes between left and right texts."""
+        left_lines = self._left_text.splitlines()
+        right_lines = self._right_text.splitlines()
+        sm = difflib.SequenceMatcher(None, left_lines, right_lines)
+        return sm.get_opcodes(), left_lines, right_lines
+
+    def _render_full(
+        self,
+        opcodes: list[tuple[str, int, int, int, int]],
+        left_lines: list[str],
+        right_lines: list[str],
+    ) -> tuple[Text, Text, str]:
+        """Render the complete file with all lines visible."""
         left = Text()
         right = Text()
         changed_line_nums: list[int] = []
-        row = 0  # visual row counter for the summary
         left_num = 0
         right_num = 0
 
-        sm = difflib.SequenceMatcher(None, left_lines, right_lines)
-        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        for tag, i1, i2, j1, j2 in opcodes:
             if tag == "equal":
                 for k in range(i2 - i1):
                     left_num += 1
                     right_num += 1
-                    row += 1
                     left.append(f"{left_num:4d} ", style="dim")
                     left.append(f"{left_lines[i1 + k]}\n")
                     right.append(f"{right_num:4d} ", style="dim")
@@ -381,7 +423,6 @@ class DiffScreen(SyncScreen):
             elif tag == "replace":
                 max_len = max(i2 - i1, j2 - j1)
                 for k in range(max_len):
-                    row += 1
                     if i1 + k < i2:
                         left_num += 1
                         changed_line_nums.append(left_num)
@@ -400,7 +441,6 @@ class DiffScreen(SyncScreen):
             elif tag == "delete":
                 for k in range(i2 - i1):
                     left_num += 1
-                    row += 1
                     changed_line_nums.append(left_num)
                     left.append(f"{left_num:4d} ", style="red")
                     left.append(
@@ -409,11 +449,131 @@ class DiffScreen(SyncScreen):
             elif tag == "insert":
                 for k in range(j2 - j1):
                     right_num += 1
-                    row += 1
                     left.append("     \n", style="dim")
                     right.append(f"{right_num:4d} ", style="green")
                     right.append(
                         f"{right_lines[j1 + k]}\n", style="green")
+
+        summary = self._summarize_changed_lines(changed_line_nums)
+        return left, right, summary
+
+    def _render_context(
+        self,
+        opcodes: list[tuple[str, int, int, int, int]],
+        left_lines: list[str],
+        right_lines: list[str],
+    ) -> tuple[Text, Text, str]:
+        """Render only changed lines with surrounding context.
+
+        Each change hunk shows CONTEXT_LINES before and after.
+        Hunks separated by more than 2*CONTEXT_LINES get a separator
+        ("···") between them; otherwise they merge naturally.
+        """
+        ctx = self.CONTEXT_LINES
+
+        # First pass: build all visual rows with metadata.
+        rows: list[tuple[str, int, str, int, str]] = []
+        # Each row: (tag, left_num, left_line, right_num, right_line)
+        # left_num/right_num = 0 means blank placeholder line
+        left_num = 0
+        right_num = 0
+
+        for tag, i1, i2, j1, j2 in opcodes:
+            if tag == "equal":
+                for k in range(i2 - i1):
+                    left_num += 1
+                    right_num += 1
+                    rows.append((
+                        "equal", left_num,
+                        left_lines[i1 + k],
+                        right_num,
+                        right_lines[j1 + k],
+                    ))
+            elif tag == "replace":
+                max_len = max(i2 - i1, j2 - j1)
+                for k in range(max_len):
+                    ln = 0
+                    ll = ""
+                    rn = 0
+                    rl = ""
+                    if i1 + k < i2:
+                        left_num += 1
+                        ln = left_num
+                        ll = left_lines[i1 + k]
+                    if j1 + k < j2:
+                        right_num += 1
+                        rn = right_num
+                        rl = right_lines[j1 + k]
+                    rows.append(("replace", ln, ll, rn, rl))
+            elif tag == "delete":
+                for k in range(i2 - i1):
+                    left_num += 1
+                    rows.append((
+                        "delete", left_num,
+                        left_lines[i1 + k], 0, "",
+                    ))
+            elif tag == "insert":
+                for k in range(j2 - j1):
+                    right_num += 1
+                    rows.append((
+                        "insert", 0, "",
+                        right_num, right_lines[j1 + k],
+                    ))
+
+        # Second pass: determine which rows are visible (changed + context).
+        visible = [False] * len(rows)
+        changed_line_nums: list[int] = []
+
+        for i, (tag, ln, _ll, _rn, _rl) in enumerate(rows):
+            if tag != "equal":
+                if ln > 0:
+                    changed_line_nums.append(ln)
+                # Mark this row and surrounding context as visible.
+                for j in range(max(0, i - ctx), min(len(rows), i + ctx + 1)):
+                    visible[j] = True
+
+        # Third pass: render visible rows, inserting separators for gaps.
+        left = Text()
+        right = Text()
+        last_visible_idx = -1
+
+        for i, (tag, ln, ll, rn, rl) in enumerate(rows):
+            if not visible[i]:
+                continue
+
+            # Insert separator if there's a gap.
+            if last_visible_idx >= 0 and i - last_visible_idx > 1:
+                left.append("   ···\n", style="dim italic")
+                right.append("   ···\n", style="dim italic")
+
+            last_visible_idx = i
+
+            if tag == "equal":
+                lnum_str = f"{ln:4d} " if ln else "     "
+                rnum_str = f"{rn:4d} " if rn else "     "
+                left.append(lnum_str, style="dim")
+                left.append(f"{ll}\n")
+                right.append(rnum_str, style="dim")
+                right.append(f"{rl}\n")
+            elif tag == "replace":
+                if ln:
+                    left.append(f"{ln:4d} ", style="red")
+                    left.append(f"{ll}\n", style="red")
+                else:
+                    left.append("     \n", style="dim")
+                if rn:
+                    right.append(f"{rn:4d} ", style="green")
+                    right.append(f"{rl}\n", style="green")
+                else:
+                    right.append("     \n", style="dim")
+            elif tag == "delete":
+                left.append(f"{ln:4d} ", style="red")
+                left.append(f"{ll}\n", style="red")
+                right.append("     \n", style="dim")
+            elif tag == "insert":
+                left.append("     \n", style="dim")
+                right.append(f"{rn:4d} ", style="green")
+                right.append(f"{rl}\n", style="green")
 
         summary = self._summarize_changed_lines(changed_line_nums)
         return left, right, summary
@@ -447,6 +607,7 @@ class MainScreen(SyncScreen):
     """Displays sync status and action menu."""
 
     BINDINGS = [
+        Binding("r", "refresh", "Refresh"),
         Binding("q", "quit_app", "Quit"),
     ]
 
@@ -503,6 +664,26 @@ class MainScreen(SyncScreen):
                 self.sync_app.push_screen(PullScreen())
         elif oid == "pick":
             self.sync_app.push_screen(PickVersionScreen())
+
+    def action_refresh(self) -> None:
+        """Re-export profiles from slicers and refresh status."""
+        self.query_one("#status-panel", Static).update(
+            Text("  Refreshing...", style="italic dim"))
+        self._do_refresh()
+
+    @work(thread=True)
+    def _do_refresh(self) -> None:
+        cfg = self.sync_app.cfg
+        exported = export_from_slicers_to_repo(cfg)
+        if not exported:
+            exported = rebuild_exported_from_git(cfg)
+        self.sync_app.exported = exported
+        self.sync_app.refresh_status()
+        self.sync_app.call_from_thread(
+            self.query_one("#status-panel", Static).update,
+            self.sync_app.status_text)
+        self.sync_app.call_from_thread(
+            self.notify, "Refreshed", severity="information")
 
     def action_quit_app(self) -> None:
         self.sync_app.exit(0)
@@ -776,6 +957,7 @@ class PullScreen(SyncScreen):
         Binding("i", "invert", "Invert"),
         Binding("s", "range_select", "Range"),
         Binding("d", "show_diff", "Diff"),
+        Binding("f", "toggle_filter", "Filter"),
         Binding("enter", "confirm", "Confirm", priority=True),
         Binding("escape", "go_back", "Back"),
     ]
@@ -784,12 +966,14 @@ class PullScreen(SyncScreen):
         super().__init__()
         self._profiles: list[dict] = []
         self._range_anchor: int | None = None
+        self._had_stash: bool = False
+        self._show_all: bool = False
 
     def compose(self) -> ComposeResult:
         title = Text()
         title.append("Download profiles from server", style="bold")
         title.append(
-            "  (new & changed selected by default)", style="dim")
+            "  (showing changed/new only — [f] show all)", style="dim")
         yield Static(title, id="screen-title")
         yield Static("  Loading profiles from server...", id="loading")
         yield Footer()
@@ -810,11 +994,14 @@ class PullScreen(SyncScreen):
             except subprocess.CalledProcessError:
                 pass
 
-        # Discard uncommitted changes (from earlier export step)
+        # Stash uncommitted changes (from earlier export) instead of
+        # destroying them — we restore them if the user backs out.
         status = git_status_porcelain(cfg.repo_dir)
         if status.strip():
-            run(["git", "reset", "--hard", "HEAD"], cwd=cfg.repo_dir)
-            run(["git", "clean", "-fd"], cwd=cfg.repo_dir)
+            result = run(
+                ["git", "stash", "push", "-m", "profilesync-pull-temp"],
+                cwd=cfg.repo_dir, check=False)
+            self._had_stash = result.returncode == 0
 
         # Pull latest from server
         try:
@@ -823,6 +1010,7 @@ class PullScreen(SyncScreen):
             if git_has_conflicts(cfg.repo_dir):
                 run(["git", "rebase", "--abort"],
                     cwd=cfg.repo_dir, check=False)
+            self._restore_stash()
             self.sync_app.call_from_thread(
                 self.notify,
                 "Error downloading from server",
@@ -843,14 +1031,50 @@ class PullScreen(SyncScreen):
             pass
 
         if not profiles:
+            self._restore_stash()
             self.notify(
                 "No profiles found on server", severity="information")
             self.sync_app.pop_screen()
             return
 
-        # Build selections — use integer index as value (hashable)
+        self._build_profile_list()
+
+    def _build_profile_list(self) -> None:
+        """(Re)build the SelectionList based on the current filter."""
+        # Remove existing list and status if rebuilding
+        try:
+            self.query_one("#file-list").remove()
+        except Exception:
+            pass
+        try:
+            self.query_one("#select-status").remove()
+        except Exception:
+            pass
+
+        # Filter profiles
+        if self._show_all:
+            visible = list(enumerate(self._profiles))
+        else:
+            visible = [
+                (i, p) for i, p in enumerate(self._profiles)
+                if not p["matches_local"]
+            ]
+
+        if not visible:
+            footer = self.query_one(Footer)
+            self.mount(
+                Static(
+                    "  All profiles match local — press [f] to show all",
+                    id="file-list"),
+                before=footer)
+            self.mount(Static("", id="select-status"), before=footer)
+            # Update title
+            self._update_title()
+            return
+
+        # Build selections — use original index as value
         selections: list[tuple[Text, int, bool]] = []
-        for i, p in enumerate(profiles):
+        for orig_i, p in visible:
             display_name = SLICER_DISPLAY_NAMES.get(
                 p["slicer_key"], p["slicer_key"].capitalize())
 
@@ -871,7 +1095,7 @@ class PullScreen(SyncScreen):
                 label.append("  (new)", style="green")
                 checked = True
 
-            selections.append((label, i, checked))
+            selections.append((label, orig_i, checked))
 
         # Mount widgets dynamically
         footer = self.query_one(Footer)
@@ -884,6 +1108,30 @@ class PullScreen(SyncScreen):
 
         self.query_one("#file-list").focus()
         self._update_status()
+        self._update_title()
+
+    def _update_title(self) -> None:
+        """Update the screen title to reflect current filter mode."""
+        title = Text()
+        title.append("Download profiles from server", style="bold")
+        if self._show_all:
+            title.append(
+                "  (showing all — [f] show changed only)", style="dim")
+        else:
+            title.append(
+                "  (showing changed/new only — [f] show all)",
+                style="dim")
+        try:
+            self.query_one("#screen-title", Static).update(title)
+        except Exception:
+            pass
+
+    def _restore_stash(self) -> None:
+        """Pop the stash we created on mount, restoring exported state."""
+        if self._had_stash:
+            cfg = self.sync_app.cfg
+            run(["git", "stash", "pop"], cwd=cfg.repo_dir, check=False)
+            self._had_stash = False
 
     def on_selection_list_selected_changed(self) -> None:
         self._update_status()
@@ -937,16 +1185,23 @@ class PullScreen(SyncScreen):
                 f"Selected items {lo + 1}–{hi + 1}",
                 severity="information")
 
+    def action_toggle_filter(self) -> None:
+        """Toggle between showing changed/new only vs all profiles."""
+        self._show_all = not self._show_all
+        self._build_profile_list()
+
     def action_show_diff(self) -> None:
         """Show diff for the highlighted profile (server vs local slicer)."""
         try:
             sl = self.query_one(SelectionList)
         except Exception:
             return
-        idx = sl.highlighted
-        if idx is None:
+        hl = sl.highlighted
+        if hl is None:
             return
-        p = self._profiles[idx]
+        # The SelectionList value is the original profile index
+        orig_idx = sl.get_option_at_index(hl).value
+        p = self._profiles[orig_idx]
 
         # Server version (in repo)
         repo_path: Path = p["repo_path"]
@@ -986,6 +1241,7 @@ class PullScreen(SyncScreen):
         self._execute_pull(selected)
 
     def action_go_back(self) -> None:
+        self._restore_stash()
         self.sync_app.pop_screen()
 
     @work(thread=True, exclusive=True)
@@ -1006,6 +1262,11 @@ class PullScreen(SyncScreen):
                 severity="information")
 
         # Re-export to recalculate remaining differences
+        # Drop stash (don't pop) — re-export creates fresh exported state
+        if self._had_stash:
+            run(["git", "stash", "drop"],
+                cwd=self.sync_app.cfg.repo_dir, check=False)
+            self._had_stash = False
         exported = export_from_slicers_to_repo(self.sync_app.cfg)
         if not exported:
             exported = rebuild_exported_from_git(self.sync_app.cfg)
