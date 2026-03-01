@@ -607,6 +607,10 @@ class MainScreen(SyncScreen):
     """Displays sync status and action menu."""
 
     BINDINGS = [
+        Binding("1", "menu_push", "Push", priority=True),
+        Binding("2", "menu_pull", "Pull", priority=True),
+        Binding("3", "menu_full_sync", "Full Sync", priority=True),
+        Binding("4", "menu_pick", "Pick Version", priority=True),
         Binding("r", "refresh", "Refresh"),
         Binding("q", "quit_app", "Quit"),
     ]
@@ -622,21 +626,21 @@ class MainScreen(SyncScreen):
         yield OptionList(
             Option(
                 Text.from_markup(
-                    "[bold]Push[/bold] — save your changes to server"),
+                    "[bold]1  Push[/bold] — save your changes to server"),
                 id="push"),
             Option(
                 Text.from_markup(
-                    "[bold]Pull[/bold] — download latest profiles"
+                    "[bold]2  Pull[/bold] — download latest profiles"
                     " from server"),
                 id="pull"),
             Option(
                 Text.from_markup(
-                    "[bold]Full Sync[/bold] — push then pull"
+                    "[bold]3  Full Sync[/bold] — push then pull"
                     " [dim](recommended)[/dim]"),
                 id="full_sync"),
             Option(
                 Text.from_markup(
-                    "[bold]Pick Version[/bold]"
+                    "[bold]4  Pick Version[/bold]"
                     " — restore a specific saved version"),
                 id="pick"),
             id="menu",
@@ -646,7 +650,9 @@ class MainScreen(SyncScreen):
     def on_option_list_option_selected(
         self, event: OptionList.OptionSelected,
     ) -> None:
-        oid = event.option_id
+        self._activate_menu(event.option_id)
+
+    def _activate_menu(self, oid: str | None) -> None:
         if oid == "push":
             if self.sync_app.exported:
                 self.sync_app.push_screen(PushScreen())
@@ -660,10 +666,21 @@ class MainScreen(SyncScreen):
             if self.sync_app.exported:
                 self.sync_app.push_screen(PushScreen(then_pull=True))
             else:
-                # Nothing to push, go directly to pull
                 self.sync_app.push_screen(PullScreen())
         elif oid == "pick":
             self.sync_app.push_screen(PickVersionScreen())
+
+    def action_menu_push(self) -> None:
+        self._activate_menu("push")
+
+    def action_menu_pull(self) -> None:
+        self._activate_menu("pull")
+
+    def action_menu_full_sync(self) -> None:
+        self._activate_menu("full_sync")
+
+    def action_menu_pick(self) -> None:
+        self._activate_menu("pick")
 
     def action_refresh(self) -> None:
         """Re-export profiles from slicers and refresh status."""
@@ -972,8 +989,10 @@ class PullScreen(SyncScreen):
     def compose(self) -> ComposeResult:
         title = Text()
         title.append("Download profiles from server", style="bold")
-        title.append(
-            "  (showing changed/new only — [f] show all)", style="dim")
+        hint = Text("  (showing changed/new only \u2014 ", style="dim")
+        hint.append("f", style="dim bold")
+        hint.append(" show all)", style="dim")
+        title.append_text(hint)
         yield Static(title, id="screen-title")
         yield Static("  Loading profiles from server...", id="loading")
         yield Footer()
@@ -1041,15 +1060,12 @@ class PullScreen(SyncScreen):
 
     def _build_profile_list(self) -> None:
         """(Re)build the SelectionList based on the current filter."""
-        # Remove existing list and status if rebuilding
-        try:
-            self.query_one("#file-list").remove()
-        except Exception:
-            pass
-        try:
-            self.query_one("#select-status").remove()
-        except Exception:
-            pass
+        # Remove existing widgets if rebuilding
+        for wid in ("#file-list", "#no-results", "#select-status"):
+            try:
+                self.query_one(wid).remove()
+            except Exception:
+                pass
 
         # Filter profiles
         if self._show_all:
@@ -1061,14 +1077,13 @@ class PullScreen(SyncScreen):
             ]
 
         if not visible:
+            msg = Text("  All profiles match local \u2014 press ")
+            msg.append("f", style="bold")
+            msg.append(" to show all")
             footer = self.query_one(Footer)
             self.mount(
-                Static(
-                    "  All profiles match local — press [f] to show all",
-                    id="file-list"),
+                Static(msg, id="no-results"),
                 before=footer)
-            self.mount(Static("", id="select-status"), before=footer)
-            # Update title
             self._update_title()
             return
 
@@ -1115,12 +1130,15 @@ class PullScreen(SyncScreen):
         title = Text()
         title.append("Download profiles from server", style="bold")
         if self._show_all:
-            title.append(
-                "  (showing all — [f] show changed only)", style="dim")
+            hint = Text("  (showing all \u2014 ", style="dim")
+            hint.append("f", style="dim bold")
+            hint.append(" show changed only)", style="dim")
         else:
-            title.append(
-                "  (showing changed/new only — [f] show all)",
-                style="dim")
+            hint = Text(
+                "  (showing changed/new only \u2014 ", style="dim")
+            hint.append("f", style="dim bold")
+            hint.append(" show all)", style="dim")
+        title.append_text(hint)
         try:
             self.query_one("#screen-title", Static).update(title)
         except Exception:
