@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from .config import Config, DEFAULT_DATA_DIR
+from .config import DEFAULT_DATA_DIR
 from .ui import dim, get_check_symbol, info, success
 
 
@@ -199,13 +199,61 @@ def git_get_conflicted_files(repo_dir: Path) -> list[Path]:
             # Git wraps filenames with special chars in quotes and escapes them
             # e.g. "profiles/orcaslicer/filament/Bambu ABS - Tuned.json"
             if filepath.startswith('"') and filepath.endswith('"'):
-                # Remove quotes and decode escape sequences
+                # Remove quotes and decode C-style escape sequences
                 filepath = filepath[1:-1]
-                # Decode common escape sequences (\t, \n, \\, \", etc.)
-                filepath = filepath.encode('utf-8').decode('unicode_escape')
+                filepath = _git_unescape(filepath)
 
             conflicted.append(repo_dir / filepath)
     return conflicted
+
+
+def _git_unescape(s: str) -> str:
+    r"""Decode git's C-style escape sequences (octal \NNN, \t, \n, \\, \").
+
+    Git encodes non-ASCII UTF-8 bytes as individual octal escapes, e.g.
+    \303\251 for é (bytes 0xC3 0xA9).  We must collect consecutive octal
+    escapes into a byte sequence and decode them together.
+    """
+    raw: list[int] = []  # pending raw bytes from octal escapes
+    result: list[str] = []
+
+    def _flush_bytes() -> None:
+        if raw:
+            result.append(bytes(raw).decode('utf-8', errors='replace'))
+            raw.clear()
+
+    i = 0
+    while i < len(s):
+        if s[i] == '\\' and i + 1 < len(s):
+            nxt = s[i + 1]
+            if nxt in '01234567':
+                # Octal escape: \NNN (1-3 octal digits)
+                octal = nxt
+                j = i + 2
+                while j < len(s) and j < i + 4 and s[j] in '01234567':
+                    octal += s[j]
+                    j += 1
+                raw.append(int(octal, 8))
+                i = j
+            else:
+                _flush_bytes()
+                if nxt == 'n':
+                    result.append('\n')
+                elif nxt == 't':
+                    result.append('\t')
+                elif nxt == '\\':
+                    result.append('\\')
+                elif nxt == '"':
+                    result.append('"')
+                else:
+                    result.append(s[i:i+2])
+                i += 2
+        else:
+            _flush_bytes()
+            result.append(s[i])
+            i += 1
+    _flush_bytes()
+    return ''.join(result)
 
 
 def git_remote_has_profiles(repo_dir: Path) -> bool:

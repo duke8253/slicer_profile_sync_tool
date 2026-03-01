@@ -38,8 +38,6 @@ def main(argv: list[str] | None = None) -> int:
               profilesync init                          # Interactive setup
               profilesync init --remote git@github.com:user/repo.git
               profilesync sync                          # Interactive sync
-              profilesync sync --action push            # Push only
-              profilesync sync --action pull            # Pull only
               profilesync config                        # Show current config
         """)
     )
@@ -66,18 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # sync command
-    sync_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "sync",
-        help="Sync profiles between local slicers and GitHub"
-    )
-    sync_parser.add_argument(
-        "--action",
-        choices=["push", "pull", "pick", "both", "1", "2", "3", "4"],
-        help="Sync action: push, pull, pick (version), or both"
+        help="Sync profiles between local slicers and server"
     )
 
     # config command
-    config_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "config",
         help="Show current configuration"
     )

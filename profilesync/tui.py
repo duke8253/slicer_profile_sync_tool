@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import difflib
 import subprocess
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -374,8 +375,12 @@ class DiffScreen(SyncScreen):
 
         # Update diff panes
         panes = self.query(".diff-pane")
-        panes[0].update(left_content)
-        panes[1].update(right_content)
+        left_pane = panes[0]
+        right_pane = panes[1]
+        assert isinstance(left_pane, Static)
+        assert isinstance(right_pane, Static)
+        left_pane.update(left_content)
+        right_pane.update(right_content)
 
     def _build_diff(self) -> tuple[Text, Text, str]:
         """Route to full or context-only diff builder."""
@@ -391,7 +396,7 @@ class DiffScreen(SyncScreen):
 
     def _compute_opcodes(
         self,
-    ) -> tuple[list[tuple[str, int, int, int, int]], list[str], list[str]]:
+    ) -> tuple[Sequence[tuple[str, int, int, int, int]], list[str], list[str]]:
         """Compute diff opcodes between left and right texts."""
         left_lines = self._left_text.splitlines()
         right_lines = self._right_text.splitlines()
@@ -400,7 +405,7 @@ class DiffScreen(SyncScreen):
 
     def _render_full(
         self,
-        opcodes: list[tuple[str, int, int, int, int]],
+        opcodes: Sequence[tuple[str, int, int, int, int]],
         left_lines: list[str],
         right_lines: list[str],
     ) -> tuple[Text, Text, str]:
@@ -459,7 +464,7 @@ class DiffScreen(SyncScreen):
 
     def _render_context(
         self,
-        opcodes: list[tuple[str, int, int, int, int]],
+        opcodes: Sequence[tuple[str, int, int, int, int]],
         left_lines: list[str],
         right_lines: list[str],
     ) -> tuple[Text, Text, str]:
@@ -949,17 +954,24 @@ class PushScreen(SyncScreen):
                 self.notify, "Push failed", severity="error", timeout=10)
             self.sync_app.call_from_thread(self._after_push, False)
 
-    def _after_push(self, success: bool) -> None:
-        if success:
-            # Re-export to detect any remaining unpushed changes
-            exported = export_from_slicers_to_repo(self.sync_app.cfg)
-            if not exported:
-                exported = rebuild_exported_from_git(self.sync_app.cfg)
-            self.sync_app.exported = exported
-            self.sync_app.refresh_status()
-        self.sync_app.pop_screen()
-        if success and self.then_pull:
-            self.sync_app.push_screen(PullScreen())
+    def _after_push(self, push_ok: bool) -> None:
+        if push_ok:
+            self._refresh_after_push()
+        else:
+            self.sync_app.pop_screen()
+
+    @work(thread=True, exclusive=True)
+    def _refresh_after_push(self) -> None:
+        # Re-export to detect any remaining unpushed changes
+        exported = export_from_slicers_to_repo(self.sync_app.cfg)
+        if not exported:
+            exported = rebuild_exported_from_git(self.sync_app.cfg)
+        self.sync_app.exported = exported
+        self.sync_app.call_from_thread(self.sync_app.refresh_status)
+        self.sync_app.call_from_thread(self.sync_app.pop_screen)
+        if self.then_pull:
+            self.sync_app.call_from_thread(
+                self.sync_app.push_screen, PullScreen())
 
 
 # ── Pull Screen ─────────────────────────────────────────────────────────────
@@ -1264,35 +1276,42 @@ class PullScreen(SyncScreen):
 
     @work(thread=True, exclusive=True)
     def _execute_pull(self, selected_indices: list[int]) -> None:
-        selected = [self._profiles[i] for i in selected_indices]
-        imported = import_selected_profiles(self.sync_app.cfg, selected)
+        try:
+            selected = [self._profiles[i] for i in selected_indices]
+            imported = import_selected_profiles(self.sync_app.cfg, selected)
 
-        n = len(imported)
-        if n > 0:
+            n = len(imported)
+            if n > 0:
+                self.sync_app.call_from_thread(
+                    self.notify,
+                    f"✓ Downloaded {n} file(s) to local",
+                    severity="information")
+            else:
+                self.sync_app.call_from_thread(
+                    self.notify,
+                    "All selected files are already up to date",
+                    severity="information")
+
+            # Re-export to recalculate remaining differences
+            # Drop stash (don't pop) — re-export creates fresh exported state
+            if self._had_stash:
+                run(["git", "stash", "drop"],
+                    cwd=self.sync_app.cfg.repo_dir, check=False)
+                self._had_stash = False
+            exported = export_from_slicers_to_repo(self.sync_app.cfg)
+            if not exported:
+                exported = rebuild_exported_from_git(self.sync_app.cfg)
+            self.sync_app.exported = exported
+
+            # Refresh main screen status after pull
+            self.sync_app.call_from_thread(self.sync_app.refresh_status)
+            self.sync_app.call_from_thread(self.sync_app.pop_screen)
+        except Exception:
+            # Restore stash so uncommitted changes aren't lost
+            self._restore_stash()
             self.sync_app.call_from_thread(
-                self.notify,
-                f"✓ Downloaded {n} file(s) to local",
-                severity="information")
-        else:
-            self.sync_app.call_from_thread(
-                self.notify,
-                "All selected files are already up to date",
-                severity="information")
-
-        # Re-export to recalculate remaining differences
-        # Drop stash (don't pop) — re-export creates fresh exported state
-        if self._had_stash:
-            run(["git", "stash", "drop"],
-                cwd=self.sync_app.cfg.repo_dir, check=False)
-            self._had_stash = False
-        exported = export_from_slicers_to_repo(self.sync_app.cfg)
-        if not exported:
-            exported = rebuild_exported_from_git(self.sync_app.cfg)
-        self.sync_app.exported = exported
-
-        # Refresh main screen status after pull
-        self.sync_app.call_from_thread(self.sync_app.refresh_status)
-        self.sync_app.call_from_thread(self.sync_app.pop_screen)
+                self.notify, "Pull failed", severity="error", timeout=10)
+            self.sync_app.call_from_thread(self.sync_app.pop_screen)
 
 
 # ── Pick Version Screen ─────────────────────────────────────────────────────

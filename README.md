@@ -12,7 +12,7 @@ If you use multiple computers, you've probably experienced this:
 - Try to remember which machine has the latest settings
 - Waste time manually copying .json files around
 
-**ProfileSync** solves this by automatically syncing your slicer profiles across all your machines using Git (GitHub, GitLab, Gitea, or any Git server).
+**ProfileSync** solves this by syncing your slicer profiles across all your machines using Git (GitHub, GitLab, Gitea, or any Git server).
 
 ## Screenshots
 
@@ -26,93 +26,86 @@ If you use multiple computers, you've probably experienced this:
 
 ## Key Features
 
-- 🔄 **True Bidirectional Sync** - additions, modifications, AND deletions propagate
-- 🖥️ **Interactive TUI** - full-screen terminal UI with file selection (powered by [Textual](https://textual.textualize.io/))
-- 🔍 **Side-by-Side Diff Viewer** - compare local vs server versions with line numbers and change highlighting
-- 🎨 **Organized Display** - files grouped by slicer and type (filament/process/machine)
-- 💻 **Cross-platform** - macOS, Windows, Linux
-- 🔍 **Auto-detection** of slicer profile directories
-- 🌐 **Any Git Server** - GitHub, GitLab, Gitea, self-hosted, etc.
-- 💬 **User-friendly language** - no git jargon, just "local" and "server"
-- ⚔️ **Interactive conflict resolution** - guided editor-based conflict fixing
-- 📊 **Smart status display** - shows local vs server differences by slicer and type
-- ⚡ **Hash-based deduplication** - only syncs what actually changed
-- 📅 **Version history** - restore any previous profile version
-- 🎯 **Multi-slicer support** - Orca Slicer, Bambu Studio, Snapmaker Orca, Creality Print, Elegoo Slicer
-- 🔒 **Privacy first** - your profiles, your Git server, you control your data
+- 🖥️ **Interactive TUI** — full-screen terminal UI with file selection, powered by [Textual](https://textual.textualize.io/)
+- 🔄 **Bidirectional Sync** — additions, modifications, and deletions propagate in both directions
+- 🔍 **Side-by-Side Diff Viewer** — compare local vs server with line numbers, context-only or full-file mode
+- 🎨 **Organized Display** — files grouped by slicer and type (filament / process / machine)
+- 📅 **Version History** — restore any previous profile version
+- 🎯 **Multi-Slicer** — Orca Slicer, Bambu Studio, Snapmaker Orca, Creality Print, Elegoo Slicer
+- 💻 **Cross-Platform** — macOS, Windows, Linux
+- 🌐 **Any Git Server** — GitHub, GitLab, Gitea, self-hosted, etc.
+- 💬 **User-Friendly** — no Git jargon, just "local" and "server"
+- ⚡ **Hash-Based Dedup** — only syncs what actually changed
+- 🔒 **Privacy First** — your profiles, your Git server, you control your data
 
 ## Supported Slicers
 
-- **Orca Slicer** - Auto-detects user directories
-- **Bambu Studio** - Auto-detects user directories
-- **Snapmaker Orca** - Snapmaker's OrcaSlicer fork
-- **Creality Print** - Auto-detects version 7.0 or 6.0
-- **Elegoo Slicer** - Based on OrcaSlicer
+| Slicer | Auto-Detect | Notes |
+|--------|:-----------:|-------|
+| **Orca Slicer** | ✅ | User directories |
+| **Bambu Studio** | ✅ | User directories |
+| **Snapmaker Orca** | ✅ | Snapmaker's OrcaSlicer fork |
+| **Creality Print** | ✅ | v7.0 and v6.0 |
+| **Elegoo Slicer** | ✅ | Based on OrcaSlicer |
 
-### Profile Locations
+<details>
+<summary>Profile Locations</summary>
 
 **macOS:**
-- Orca Slicer: `~/Library/Application Support/OrcaSlicer/user/<id>/`
-- Bambu Studio: `~/Library/Application Support/BambuStudio/user/<id>/`
-- Snapmaker Orca: `~/Library/Application Support/SnapmakerOrcaSlicer/user/<id>/`
-- Creality Print: `~/Library/Application Support/Creality/Creality Print/7.0/`
-- Elegoo Slicer: `~/Library/Application Support/ElegooSlicer/user/<id>/`
+| Slicer | Path |
+|--------|------|
+| Orca Slicer | `~/Library/Application Support/OrcaSlicer/user/<id>/` |
+| Bambu Studio | `~/Library/Application Support/BambuStudio/user/<id>/` |
+| Snapmaker Orca | `~/Library/Application Support/SnapmakerOrcaSlicer/user/<id>/` |
+| Creality Print | `~/Library/Application Support/Creality/Creality Print/7.0/` |
+| Elegoo Slicer | `~/Library/Application Support/ElegooSlicer/user/<id>/` |
 
 **Windows:**
-- Orca Slicer: `%APPDATA%\OrcaSlicer\user\<id>\`
-- Bambu Studio: `%APPDATA%\BambuStudio\user\<id>\`
-- Snapmaker Orca: `%APPDATA%\SnapmakerOrcaSlicer\user\<id>\`
-- Creality Print: `%APPDATA%\Creality\Creality Print\7.0\`
-- Elegoo Slicer: `%APPDATA%\ElegooSlicer\user\<id>\`
+| Slicer | Path |
+|--------|------|
+| Orca Slicer | `%APPDATA%\OrcaSlicer\user\<id>\` |
+| Bambu Studio | `%APPDATA%\BambuStudio\user\<id>\` |
+| Snapmaker Orca | `%APPDATA%\SnapmakerOrcaSlicer\user\<id>\` |
+| Creality Print | `%APPDATA%\Creality\Creality Print\7.0\` |
+| Elegoo Slicer | `%APPDATA%\ElegooSlicer\user\<id>\` |
 
 **Linux:**
-- Orca Slicer: `~/.config/OrcaSlicer/user/<id>/`
-- Bambu Studio: `~/.config/BambuStudio/user/<id>/`
-- Snapmaker Orca: `~/.config/SnapmakerOrcaSlicer/user/<id>/`
-- Creality Print: `~/.config/Creality/Creality Print/7.0/`
-- Elegoo Slicer: `~/.config/ElegooSlicer/user/<id>/`
+| Slicer | Path |
+|--------|------|
+| Orca Slicer | `~/.config/OrcaSlicer/user/<id>/` |
+| Bambu Studio | `~/.config/BambuStudio/user/<id>/` |
+| Snapmaker Orca | `~/.config/SnapmakerOrcaSlicer/user/<id>/` |
+| Creality Print | `~/.config/Creality/Creality Print/7.0/` |
+| Elegoo Slicer | `~/.config/ElegooSlicer/user/<id>/` |
 
 All slicers support automatic detection of numeric user ID subdirectories.
+</details>
 
 ## Requirements
 
-- Python 3.7+
-- [Textual](https://textual.textualize.io/) (installed via `requirements.txt`)
-- Git CLI installed
-  - **macOS**: Xcode Command Line Tools or Homebrew git
-  - **Windows**: [Git for Windows](https://git-scm.com/download/win)
-  - **Linux**: `sudo apt install git` or equivalent
-- Git repository for storing profiles (GitHub, GitLab, Gitea, etc.)
+- **Python 3.8+**
+- **Git** installed and on PATH
+  - macOS: Xcode Command Line Tools or `brew install git`
+  - Windows: [Git for Windows](https://git-scm.com/download/win)
+  - Linux: `sudo apt install git` or equivalent
+- A Git repository for storing profiles (GitHub, GitLab, Gitea, etc.)
 - SSH keys configured (recommended) or HTTPS credentials
 
 ## Installation
 
-### macOS / Linux
-
+**macOS / Linux:**
 ```bash
-# Clone this repository
-git clone https://github.com/yourusername/slicer_profile_sync_tool.git
+git clone https://github.com/duke8253/slicer_profile_sync_tool.git
 cd slicer_profile_sync_tool
-
-# Install dependencies (for colored output)
 pip3 install -r requirements.txt
-
-# Make the script executable
 chmod +x profilesync.py
 ```
 
-### Windows
-
+**Windows:**
 ```powershell
-# Clone this repository
-git clone https://github.com/yourusername/slicer_profile_sync_tool.git
+git clone https://github.com/duke8253/slicer_profile_sync_tool.git
 cd slicer_profile_sync_tool
-
-# Install dependencies (enables colored output on Windows)
 pip install -r requirements.txt
-
-# Run directly with Python (no chmod needed on Windows)
-python profilesync.py
 ```
 
 ## Quick Start
@@ -121,17 +114,13 @@ python profilesync.py
 
 Create a **private** repository on GitHub, GitLab, or your preferred Git server. Your profiles may contain sensitive information, so keep it private!
 
-Example SSH URL: `git@github.com:yourusername/slicer-profiles.git`
-
 ### 2. Initial Setup
 
-**macOS / Linux:**
 ```bash
+# macOS / Linux
 ./profilesync.py init
-```
 
-**Windows:**
-```powershell
+# Windows
 python profilesync.py init
 ```
 
@@ -142,32 +131,45 @@ This will:
 4. Configure your preferred editor for conflict resolution
 5. Clone your repository locally
 
-### 3. Sync Your Profiles
-
-**macOS / Linux:**
+You can also pass flags directly:
 ```bash
-./profilesync.py sync
+./profilesync.py init --remote git@github.com:user/slicer-profiles.git
 ```
 
-**Windows:**
-```powershell
+### 3. Sync Your Profiles
+
+```bash
+# macOS / Linux
+./profilesync.py sync
+
+# Windows
 python profilesync.py sync
 ```
 
-You'll see a full-screen interactive TUI showing:
-- Current sync status (local vs server, last sync time)
-- Files grouped by slicer and type (filament/process/machine)
-- Per-type breakdown of changed files
+This launches the interactive TUI.
 
-Menu options:
-1. **Push** - Save your local profiles to the server (with file selection)
-2. **Pull** - Download latest profiles from server (with file selection)
-3. **Full Sync** - Push then pull (recommended)
-4. **Pick Version** - Restore a specific saved version
+### 4. On Your Other Computer
 
-### File Selection Keybindings
+Repeat steps 2–3. ProfileSync will sync all your profiles!
 
-When selecting files to push or pull:
+## Using the TUI
+
+### Main Screen
+
+The main screen shows your sync status and provides four actions, selectable by number key or arrow+Enter:
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| **1** | Push | Save local changes to server |
+| **2** | Pull | Download latest profiles from server |
+| **3** | Full Sync | Push then pull (recommended) |
+| **4** | Pick Version | Restore a specific saved version |
+| **r** | Refresh | Re-scan slicer folders for changes |
+| **q** | Quit | Exit the app |
+
+### Push / Pull Screens
+
+Both screens show a file list grouped by slicer and type. Changed and new files are pre-selected.
 
 | Key | Action |
 |-----|--------|
@@ -175,70 +177,50 @@ When selecting files to push or pull:
 | **a** | Select all |
 | **n** | Deselect all |
 | **i** | Invert selection |
-| **s** | Range select — press once to set anchor, move cursor, press again to select range |
-| **d** | Show side-by-side diff for highlighted file |
+| **s** | Range select (press once to anchor, move, press again) |
+| **d** | Side-by-side diff for highlighted file |
 | **Enter** | Confirm selection |
 | **Esc** | Go back |
 
-### 4. On Your Other Computer
+The **Pull screen** also has:
 
-Repeat steps 2-3. ProfileSync will sync all your profiles!
+| Key | Action |
+|-----|--------|
+| **f** | Toggle filter: show only changed/new files (default) or all files |
+
+### Diff Viewer
+
+Press **d** on any file to see a side-by-side diff:
+
+- Left pane = local, right pane = server
+- Line numbers on both sides
+- Red = removed, green = added
+- Changed line ranges shown in the title
+- Default: context-only view (changed lines ± 3 surrounding lines)
+
+| Key | Action |
+|-----|--------|
+| **f** | Toggle between context-only and full-file view |
+| **Esc** | Go back |
 
 ## How It Works
 
-1. **Local Storage**: Profiles are cloned to `./data/<repo-name>/`
-2. **Structure**: Files are organized as `profiles/<slicer>/<type>/*.json`
-   - Example: `profiles/orcaslicer/filament/PLA Basic.json`
-3. **Sync Logic**:
-   - **Export**: Copy `.json` files from slicer → local repo (including deletions)
-   - **Push**: Commit and push changes to server
-   - **Pull**: Download from server and rebase local changes
-   - **Import**: Copy `.json` files from local repo → slicer (including deletions)
-4. **Conflict Detection**: If both computers modified the same profile, interactive resolution
+1. **Export** — copy `.json` profiles from your slicer folders into a local Git repo
+2. **Push** — commit and push changes to your Git server
+3. **Pull** — pull latest from server, rebase if needed
+4. **Import** — copy `.json` profiles from the local repo back into slicer folders
 
-## Usage Examples
-
-### View Current Configuration
-
-```bash
-./profilesync.py config
+Files are organized as `profiles/<slicer>/<type>/<name>.json`, for example:
+```
+profiles/orcaslicer/filament/PLA Basic.json
+profiles/bambustudio/process/0.20mm Standard.json
 ```
 
-Shows your current settings in JSON format.
-
-### Push Only (Save to Server)
-
-```bash
-./profilesync.py sync --action push
-```
-
-### Pull Only (Download from Server)
-
-```bash
-./profilesync.py sync --action pull
-```
-
-### Restore a Previous Version
-
-```bash
-./profilesync.py sync --action pick
-```
-
-Lists the last 20 saved versions with timestamps. Select one to restore to your slicer.
-
-### Non-Interactive Sync (CLI Mode)
-
-When using `--action`, ProfileSync runs in non-interactive CLI mode (no TUI):
-
-```bash
-./profilesync.py sync --action both
-```
-
-Automatically push then pull without prompting.
+Deletions propagate in both directions — if you delete a profile in your slicer and push, it's removed from the server.
 
 ## Configuration
 
-Config is stored in `./config.json` (gitignored):
+Config is stored in `config.json` (gitignored):
 
 ```json
 {
@@ -246,178 +228,68 @@ Config is stored in `./config.json` (gitignored):
   "repo_dir": "./data/slicer-profiles",
   "enabled_slicers": ["orcaslicer", "bambustudio"],
   "slicer_profile_dirs": {
-    "orcaslicer": ["/Users/you/Library/Application Support/OrcaSlicer/user/12345"],
-    "bambustudio": ["/Users/you/Library/Application Support/BambuStudio/user/12345"]
+    "orcaslicer": ["~/Library/Application Support/OrcaSlicer/user/12345"],
+    "bambustudio": ["~/Library/Application Support/BambuStudio/user/12345"]
   },
   "editor_cmd": "code --wait"
 }
 ```
 
-## Sync Status Display
-
-ProfileSync shows a clear status using "local" and "server" terminology — no git jargon:
-
+View your current config:
+```bash
+./profilesync.py config
 ```
-Sync status:
-  Local folder:  ./data/slicer-profiles
-  Remote server: git@github.com:user/slicer-profiles.git
-  Last sync:     January 31, 2026 at 02:45 PM
-
-  Orca Slicer (36 files)
-    Filament: 19  Process: 12  Machine: 5
-
-  Bambu Studio (27 files)
-    Filament: 15  Process: 8  Machine: 4
-
-  ✓ Local profiles match server
-  ✓ Everything is synced
-```
-
-If there are changes:
-```
-  ● 5 file(s) differ from server
-    Orca Slicer: 2 Filament, 1 Process
-    Bambu Studio: 1 Filament, 1 Process
-  ↓ Server has 2 newer update(s)
-```
-
-## Side-by-Side Diff Viewer
-
-Press **d** on any highlighted file in the push or pull screen to see a side-by-side diff:
-
-- **Left pane**: local version
-- **Right pane**: server version
-- **Line numbers** shown for both sides
-- **Red** lines = removed, **Green** lines = added
-- Changed line ranges shown in the title bar
-- Scroll both panes together
 
 ## Conflict Resolution
 
-When sync conflicts occur (profiles modified on multiple computers), ProfileSync:
+When the same profile is modified on multiple computers, ProfileSync:
 
 1. Detects conflicts automatically during push/pull
 2. Groups conflicted files by slicer and type
 3. Opens each file in your configured editor
-4. Shows conflict markers: `<<<<<<<`, `=======`, `>>>>>>>`
+4. Shows conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
 5. Guides you through resolving and committing
 
-Supported editors:
-- **VS Code**: `code --wait`
-- **Vim**: `vim`
-- **Nano**: `nano`
-- **Sublime Text**: `subl -w`
-- Custom command
-
-## Deletion Behavior
-
-ProfileSync handles deletions in both directions:
-
-**Push (Slicer → Server):**
-- Delete a profile in your slicer
-- Run sync → push
-- The profile is removed from the server
-- Shows as "deleted" in the file list
-
-**Pull (Server → Slicer):**
-- Currently: deletions from server do NOT remove files from your slicer (planned feature)
-- Workaround: manually delete unwanted profiles after pulling
+Supported editors: VS Code (`code --wait`), Vim, Nano, Sublime Text (`subl -w`), or any custom command.
 
 ## Troubleshooting
 
-### "Git not found"
-Install Git: https://git-scm.com/downloads
+| Problem | Solution |
+|---------|----------|
+| "Git not found" | Install Git: https://git-scm.com/downloads |
+| "Permission denied (publickey)" | Set up SSH keys: https://docs.github.com/en/authentication/connecting-to-github-with-ssh |
+| "No slicer directories found" | Manually specify the path during `init` |
+| Merge conflicts every sync | Use "Pick Version" to choose one authoritative version, then sync normally |
 
-### "Permission denied (publickey)"
-Set up SSH keys: https://docs.github.com/en/authentication/connecting-to-github-with-ssh
-
-### "No slicer directories found"
-Manually specify the path during `init`, or check that your slicer is installed.
-
-### Colors not working on Windows
-Make sure `colorama` is installed: `pip install colorama`
-
-### Merge conflicts every sync
-This happens when both computers modify the same profiles. Use "Pick version" to choose one authoritative version, then sync normally.
-
-## Privacy & Security
-
-- **Use private repositories** - your profiles may contain printer info, API keys, etc.
-- **SSH recommended** - more secure than HTTPS passwords
-- **No telemetry** - this tool doesn't send any data anywhere except your Git server
-- **You control everything** - your profiles, your Git server, your data
-
-## Color Scheme
-
-ProfileSync uses colors for better readability (auto-disables when piped):
-
-- 🟢 **Green** - Success messages (✓)
-- 🟣 **Magenta** - Info/counts ("17 files")
-- 🔵 **Blue** - Dimmed labels ("Last sync:")
-- 🟡 **Yellow** - Warnings (⚠)
-- 🔴 **Red** - Errors (✗)
-- **Bold White** - Highlighted text (slicer names, actions)
-
-## Development
-
-### Project Structure
+## Project Structure
 
 ```
 slicer_profile_sync_tool/
-├── profilesync.py          # Main entry point
+├── profilesync.py          # CLI entry point
 ├── profilesync/            # Core package
-│   ├── __init__.py        # Package exports
-│   ├── commands.py        # CLI command implementations
-│   ├── config.py          # Configuration management
-│   ├── git.py             # Git operations
-│   ├── slicers.py         # Slicer detection
-│   ├── sync.py            # File sync operations
-│   ├── tui.py             # Textual TUI (interactive sync screens)
-│   └── ui.py              # UI helpers (colors, prompts)
-├── config.json            # User config (gitignored)
-├── data/                  # Cloned repos (gitignored)
-├── requirements.txt       # Python dependencies
-├── LICENSE                # Apache 2.0
-└── README.md             # This file
+│   ├── __init__.py
+│   ├── commands.py         # CLI commands (init, sync, config)
+│   ├── config.py           # Configuration management
+│   ├── git.py              # Git operations
+│   ├── slicers.py          # Slicer detection & paths
+│   ├── sync.py             # Export/import logic
+│   ├── tui.py              # Textual TUI screens
+│   └── ui.py               # Terminal colors & prompts
+├── config.json             # User config (gitignored)
+├── data/                   # Cloned repos (gitignored)
+├── requirements.txt
+├── LICENSE
+└── README.md
 ```
-
-### Running Tests
-
-```bash
-# Test imports
-python3 -c "from profilesync import *"
-
-# Test CLI help
-./profilesync.py --help
-
-# Dry run init (will prompt for input)
-./profilesync.py init
-```
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repo
-2. Create a feature branch
-3. Make your changes
-4. Test on your platform
-5. Submit a pull request
-
-## Future Enhancements
-- Packaging as standalone executable
 
 ## License
 
-Apache License 2.0 - See [LICENSE](LICENSE) file for details.
-
-## Credits
-
-Created to solve the multi-computer slicer profile sync problem. Built with Python, Git, and frustration from manually copying JSON files. 🎨🖨️
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- **Issues**: https://github.com/yourusername/slicer_profile_sync_tool/issues
-- **Discussions**: https://github.com/yourusername/slicer_profile_sync_tool/discussions
+- **Issues**: https://github.com/duke8253/slicer_profile_sync_tool/issues
+- **Discussions**: https://github.com/duke8253/slicer_profile_sync_tool/discussions
 
 ---
 

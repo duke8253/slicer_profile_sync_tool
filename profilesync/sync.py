@@ -21,8 +21,6 @@ from pathlib import Path
 
 from .config import Config
 from .git import REPO_PROFILES_DIR, sha256_file
-from .ui import highlight, info
-
 
 # Map config keys to proper display names
 SLICER_DISPLAY_NAMES = {
@@ -86,7 +84,7 @@ def rebuild_exported_from_git(cfg: Config) -> list[tuple[Path, Path]]:
     has uncommitted changes. This function reads ``git status`` and maps the
     changed repo files back to their slicer source paths.
     """
-    from .git import git_status_porcelain
+    from .git import git_status_porcelain, _git_unescape
 
     status = git_status_porcelain(cfg.repo_dir)
     if not status.strip():
@@ -98,7 +96,11 @@ def rebuild_exported_from_git(cfg: Config) -> list[tuple[Path, Path]]:
         if len(line) < 4:
             continue
         status_code = line[:2]
-        rel_path = Path(line[3:].strip().strip('"'))
+        raw_path = line[3:].strip()
+        # Git wraps paths with special chars in quotes + escapes them
+        if raw_path.startswith('"') and raw_path.endswith('"'):
+            raw_path = _git_unescape(raw_path[1:-1])
+        rel_path = Path(raw_path)
         dst = cfg.repo_dir / rel_path
 
         if not str(rel_path).startswith(str(REPO_PROFILES_DIR)):
@@ -238,46 +240,6 @@ def group_by_slicer_and_type(files: list[tuple[Path, Path]], cfg: Config, repo_d
         by_slicer[slicer_key][profile_type].append((src, dst))
 
     return by_slicer
-
-
-def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]], message: str) -> None:
-    """
-    Display files grouped by slicer and profile type.
-    Handles both additions/modifications (src is Path) and deletions (src is None).
-    """
-    total = sum(len(files) for types in grouped.values()
-                for files in types.values())
-    print(message.format(count=total))
-
-    for slicer_key, types in grouped.items():
-        display_name = SLICER_DISPLAY_NAMES.get(
-            slicer_key, slicer_key.capitalize())
-        total_for_slicer = sum(len(files) for files in types.values())
-
-        print(f"\n  {highlight(display_name)} ({total_for_slicer} files):")
-
-        for profile_type, files in sorted(types.items()):
-            # Count additions/modifications vs deletions
-            additions = sum(1 for src, dst in files if src is not None)
-            deletions = sum(1 for src, dst in files if src is None)
-
-            count_str = f"{len(files)}"
-            if deletions > 0:
-                count_str = f"{additions} added/modified, {deletions} deleted"
-
-            print(f"    {info(profile_type)} ({count_str}):")
-            for src, dst in files:
-                if src is None:
-                    # Deletion
-                    print(f"      - {dst.name}")
-                else:
-                    # Addition/modification
-                    print(f"      • {dst.name}")
-
-
-def is_json_file(p: Path) -> bool:
-    """Check if path is a JSON file."""
-    return p.is_file() and p.suffix.lower() == ".json"
 
 
 def collect_server_profiles(cfg: Config) -> list[dict]:

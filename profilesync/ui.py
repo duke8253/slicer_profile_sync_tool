@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import platform
 import sys
-from pathlib import Path
 
 # Cross-platform colored terminal output
 COLORAMA_AVAILABLE = False
@@ -107,22 +106,3 @@ def confirm(prompt: str, default: bool = False) -> bool:
     if ans == "":
         return default
     return ans in ("y", "yes")
-
-
-def display_grouped_files(grouped: dict[str, dict[str, list[tuple[Path, Path]]]], message: str, slicer_display_names: dict[str, str]) -> None:
-    """Display files grouped by slicer and profile type."""
-    total = sum(len(files) for types in grouped.values()
-                for files in types.values())
-    print(message.format(count=total))
-
-    for slicer_key, types in grouped.items():
-        display_name = slicer_display_names.get(
-            slicer_key, slicer_key.capitalize())
-        total_for_slicer = sum(len(files) for files in types.values())
-
-        print(f"\n  {highlight(display_name)} ({total_for_slicer} files):")
-
-        for profile_type, files in sorted(types.items()):
-            print(f"    {info(profile_type)} ({len(files)}):")
-            for src, dst in files:
-                print(f"      • {dst.name}")
