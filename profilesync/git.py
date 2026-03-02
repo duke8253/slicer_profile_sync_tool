@@ -319,8 +319,15 @@ def initialize_empty_repo(repo_dir: Path, remote: str) -> None:
 
 
 def git_status_porcelain(repo_dir: Path) -> str:
-    """Get git status in machine-readable format."""
-    return run(["git", "status", "--porcelain"], cwd=repo_dir).stdout
+    """Get git status in machine-readable format.
+
+    Uses --untracked-files=all so that individual untracked files are
+    listed instead of just the containing directory name.
+    """
+    return run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo_dir,
+    ).stdout
 
 
 def git_head_info(repo_dir: Path) -> str:

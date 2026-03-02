@@ -73,7 +73,7 @@ def _macos_default_slicers() -> list[Slicer]:
 
     # OrcaSlicer and variants
     orca_base = app_support / "OrcaSlicer"
-    snapmaker_base = app_support / "SnapmakerOrcaSlicer"
+    snapmaker_base = app_support / "Snapmaker_Orca"
 
     # Bambu Studio
     bambu_base = app_support / "BambuStudio"
@@ -133,7 +133,7 @@ def _windows_default_slicers() -> list[Slicer]:
 
     # OrcaSlicer and variants
     orca_base = appdata / "OrcaSlicer"
-    snapmaker_base = appdata / "SnapmakerOrcaSlicer"
+    snapmaker_base = appdata / "Snapmaker_Orca"
 
     # Bambu Studio
     bambu_base = appdata / "BambuStudio"
