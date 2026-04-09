@@ -75,8 +75,9 @@ def _macos_default_slicers() -> list[Slicer]:
     orca_base = app_support / "OrcaSlicer"
     snapmaker_base = app_support / "Snapmaker_Orca"
 
-    # Bambu Studio
+    # Bambu Studio and Beta
     bambu_base = app_support / "BambuStudio"
+    bambu_beta_base = app_support / "BambuStudioBeta"
 
     # Elegoo Slicer (based on OrcaSlicer)
     elegoo_base = app_support / "ElegooSlicer"
@@ -84,6 +85,7 @@ def _macos_default_slicers() -> list[Slicer]:
     orca_dirs = _detect_user_dirs(orca_base)
     snapmaker_dirs = _detect_user_dirs(snapmaker_base)
     bambu_dirs = _detect_user_dirs(bambu_base)
+    bambu_beta_dirs = _detect_user_dirs(bambu_beta_base)
     creality_dirs = _detect_creality_version(app_support)
     elegoo_dirs = _detect_user_dirs(elegoo_base)
 
@@ -99,6 +101,12 @@ def _macos_default_slicers() -> list[Slicer]:
             display="Bambu Studio",
             default_profile_dirs=bambu_dirs if bambu_dirs else [
                 bambu_base / "user" / "default"],
+        ),
+        Slicer(
+            key="bambustudiobeta",
+            display="Bambu Studio Beta",
+            default_profile_dirs=bambu_beta_dirs if bambu_beta_dirs else [
+                bambu_beta_base / "user" / "default"],
         ),
         Slicer(
             key="snapmakerorca",
@@ -135,8 +143,9 @@ def _windows_default_slicers() -> list[Slicer]:
     orca_base = appdata / "OrcaSlicer"
     snapmaker_base = appdata / "Snapmaker_Orca"
 
-    # Bambu Studio
+    # Bambu Studio and Beta
     bambu_base = appdata / "BambuStudio"
+    bambu_beta_base = appdata / "BambuStudioBeta"
 
     # Elegoo Slicer (based on OrcaSlicer)
     elegoo_base = appdata / "ElegooSlicer"
@@ -148,6 +157,7 @@ def _windows_default_slicers() -> list[Slicer]:
     orca_dirs = _detect_user_dirs(orca_base)
     snapmaker_dirs = _detect_user_dirs(snapmaker_base)
     bambu_dirs = _detect_user_dirs(bambu_base)
+    bambu_beta_dirs = _detect_user_dirs(bambu_beta_base)
     elegoo_dirs = _detect_user_dirs(elegoo_base)
 
     # Detect Creality Print version on Windows
@@ -170,6 +180,12 @@ def _windows_default_slicers() -> list[Slicer]:
             display="Bambu Studio",
             default_profile_dirs=bambu_dirs if bambu_dirs else [
                 bambu_base / "user" / "default"],
+        ),
+        Slicer(
+            key="bambustudiobeta",
+            display="Bambu Studio Beta",
+            default_profile_dirs=bambu_beta_dirs if bambu_beta_dirs else [
+                bambu_beta_base / "user" / "default"],
         ),
         Slicer(
             key="snapmakerorca",
