@@ -26,6 +26,7 @@ from .git import REPO_PROFILES_DIR, sha256_file
 SLICER_DISPLAY_NAMES = {
     "orcaslicer": "Orca Slicer",
     "bambustudio": "Bambu Studio",
+    "bambustudiobeta": "Bambu Studio Beta",
     "snapmakerorca": "Snapmaker Orca",
     "crealityprint": "Creality Print",
     "elegooslicer": "Elegoo Slicer",
