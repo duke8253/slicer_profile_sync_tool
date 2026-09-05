@@ -58,7 +58,7 @@ class Config:
             raise FileNotFoundError(f"No config found at {p}")
         with p.open("r", encoding="utf-8") as f:
             payload = json.load(f)
-        return Config(
+        cfg = Config(
             github_remote=payload["github_remote"],
             repo_dir=Path(payload.get("repo_dir", str(
                 DEFAULT_DATA_DIR / "profiles"))),
@@ -66,3 +66,15 @@ class Config:
             slicer_profile_dirs=dict(payload.get("slicer_profile_dirs", {})),
             editor_cmd=payload.get("editor_cmd"),
         )
+
+        if not cfg.github_remote:
+            raise ValueError("config.json: 'github_remote' is empty")
+        missing = [
+            s for s in cfg.enabled_slicers if s not in cfg.slicer_profile_dirs]
+        if missing:
+            raise ValueError(
+                f"config.json: slicers in 'enabled_slicers' have no entry in "
+                f"'slicer_profile_dirs': {missing}"
+            )
+
+        return cfg

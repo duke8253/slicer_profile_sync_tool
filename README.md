@@ -56,7 +56,8 @@ If you use multiple computers, you've probably experienced this:
 |--------|------|
 | Orca Slicer | `~/Library/Application Support/OrcaSlicer/user/<id>/` |
 | Bambu Studio | `~/Library/Application Support/BambuStudio/user/<id>/` |
-| Snapmaker Orca | `~/Library/Application Support/SnapmakerOrcaSlicer/user/<id>/` |
+| Bambu Studio Beta | `~/Library/Application Support/BambuStudioBeta/user/<id>/` |
+| Snapmaker Orca | `~/Library/Application Support/Snapmaker_Orca/user/<id>/` |
 | Creality Print | `~/Library/Application Support/Creality/Creality Print/7.0/` |
 | Elegoo Slicer | `~/Library/Application Support/ElegooSlicer/user/<id>/` |
 
@@ -65,7 +66,8 @@ If you use multiple computers, you've probably experienced this:
 |--------|------|
 | Orca Slicer | `%APPDATA%\OrcaSlicer\user\<id>\` |
 | Bambu Studio | `%APPDATA%\BambuStudio\user\<id>\` |
-| Snapmaker Orca | `%APPDATA%\SnapmakerOrcaSlicer\user\<id>\` |
+| Bambu Studio Beta | `%APPDATA%\BambuStudioBeta\user\<id>\` |
+| Snapmaker Orca | `%APPDATA%\Snapmaker_Orca\user\<id>\` |
 | Creality Print | `%APPDATA%\Creality\Creality Print\7.0\` |
 | Elegoo Slicer | `%APPDATA%\ElegooSlicer\user\<id>\` |
 
@@ -74,7 +76,8 @@ If you use multiple computers, you've probably experienced this:
 |--------|------|
 | Orca Slicer | `~/.config/OrcaSlicer/user/<id>/` |
 | Bambu Studio | `~/.config/BambuStudio/user/<id>/` |
-| Snapmaker Orca | `~/.config/SnapmakerOrcaSlicer/user/<id>/` |
+| Bambu Studio Beta | `~/.config/BambuStudioBeta/user/<id>/` |
+| Snapmaker Orca | `~/.config/Snapmaker_Orca/user/<id>/` |
 | Creality Print | `~/.config/Creality/Creality Print/7.0/` |
 | Elegoo Slicer | `~/.config/ElegooSlicer/user/<id>/` |
 
@@ -83,7 +86,7 @@ All slicers support automatic detection of numeric user ID subdirectories.
 
 ## Requirements
 
-- **Python 3.8+**
+- **Python 3.9+**
 - **Git** installed and on PATH
   - macOS: Xcode Command Line Tools or `brew install git`
   - Windows: [Git for Windows](https://git-scm.com/download/win)

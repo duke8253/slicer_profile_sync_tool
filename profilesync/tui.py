@@ -1419,8 +1419,22 @@ class PickVersionScreen(SyncScreen):
     @work(thread=True, exclusive=True)
     def _restore_version(self, commit: dict) -> None:
         cfg = self.sync_app.cfg
-        git_checkout_commit(cfg.repo_dir, commit["hash"])
-        imported = import_from_repo_to_slicers(cfg)
+        try:
+            git_checkout_commit(cfg.repo_dir, commit["hash"])
+            imported = import_from_repo_to_slicers(cfg)
+        except Exception:
+            # Return to main branch before surfacing the error
+            try:
+                git_checkout_branch(cfg.repo_dir, "main")
+            except subprocess.CalledProcessError:
+                try:
+                    git_checkout_branch(cfg.repo_dir, "master")
+                except subprocess.CalledProcessError:
+                    pass
+            self.sync_app.call_from_thread(
+                self.notify, "Restore failed", severity="error", timeout=10)
+            self.sync_app.call_from_thread(self.sync_app.pop_screen)
+            return
 
         # Return to main branch
         try:

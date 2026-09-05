@@ -49,10 +49,12 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
 
         # Track which files should exist in the repo (based on slicer)
         expected_repo_files: set[Path] = set()
+        any_dir_exists = False
 
         for d in dirs:
             if not d.exists():
                 continue
+            any_dir_exists = True
             for src in d.rglob("*.json"):
                 # Preserve relative structure under each configured dir to avoid filename collisions
                 rel = src.relative_to(d)
@@ -65,8 +67,10 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
                 shutil.copy2(src, dst)
                 copied.append((src, dst))
 
-        # Delete files from repo that no longer exist in slicer
-        if dst_root.exists():
+        # Only delete repo files for this slicer if at least one local dir exists.
+        # If no dirs exist, the slicer isn't installed on this machine — skip
+        # deletion so profiles from other machines are preserved.
+        if any_dir_exists and dst_root.exists():
             for repo_file in dst_root.rglob("*.json"):
                 if repo_file not in expected_repo_files:
                     repo_file.unlink()
@@ -109,8 +113,8 @@ def rebuild_exported_from_git(cfg: Config) -> list[tuple[Path, Path]]:
         if not str(rel_path).startswith(str(REPO_PROFILES_DIR)):
             continue
 
-        # Deleted from repo
-        if "D" in status_code:
+        # Deleted from repo (check index column, position 0)
+        if status_code[0] == 'D':
             result.append((None, dst))  # type: ignore
             continue
 

@@ -159,8 +159,10 @@ def git_pull_rebase(repo_dir: Path) -> None:
             # Try to restore stashed changes (may conflict, which is okay)
             result = run(["git", "stash", "pop"], cwd=repo_dir, check=False)
             if result.returncode != 0:
-                # Stash pop failed (likely due to conflicts) - drop the stash
-                # The files are already in the working directory from the pull
+                # Stash pop failed (likely due to conflicts) - drop the stash.
+                # The stash only contains copies of slicer profiles that were
+                # exported to this repo; the originals are still in the slicer
+                # directories untouched, so dropping is safe.
                 run(["git", "stash", "drop"], cwd=repo_dir, check=False)
     else:
         # No uncommitted changes, safe to rebase
